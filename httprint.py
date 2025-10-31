@@ -267,15 +267,26 @@ class UploadHandler(BaseHandler):
         return ext in image_extensions
 
     def convert_images_to_pdf(self, image_files, output_pdf):
-        """Convert multiple images to a single PDF file."""
+        """Convert multiple images to a single PDF file with A4 page fitting."""
         if not IMAGE_SUPPORT:
             raise Exception("Image support not available. Please install Pillow and img2pdf.")
 
         try:
-            # Use img2pdf to convert images to PDF
-            # img2pdf automatically handles image orientation and A4 sizing
+            # A4 size in points (1 inch = 72 points)
+            # A4 portrait: 210mm × 297mm = 595.28 × 841.89 points
+            a4_portrait = (img2pdf.mm_to_pt(210), img2pdf.mm_to_pt(297))
+
+            # Use layout_fun to ensure images fit within A4 page
+            # This method correctly scales images to fit the page while maintaining aspect ratio
+            layout_fun = img2pdf.get_layout_fun(a4_portrait)
+
             with open(output_pdf, 'wb') as f:
-                f.write(img2pdf.convert(image_files))
+                f.write(img2pdf.convert(
+                    image_files,
+                    layout_fun=layout_fun
+                ))
+
+            logger.info("Converted %d image(s) to PDF with A4 page fitting", len(image_files))
             return True
         except Exception as e:
             logger.error("Error converting images to PDF: %s", e)
