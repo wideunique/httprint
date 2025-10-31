@@ -35,6 +35,13 @@ from tornado import gen, escape
 
 import configparser
 
+try:
+    from PIL import Image
+    import img2pdf
+    IMAGE_SUPPORT = True
+except ImportError:
+    IMAGE_SUPPORT = False
+
 API_VERSION = '1.0'
 QUEUE_DIR = 'queue'
 ARCHIVE = True
@@ -224,6 +231,29 @@ class UploadHandler(BaseHandler):
                 break
         return code
 
+    def is_image_file(self, filename):
+        """Check if file is an image based on extension."""
+        if not IMAGE_SUPPORT:
+            return False
+        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif'}
+        ext = os.path.splitext(filename.lower())[1]
+        return ext in image_extensions
+
+    def convert_images_to_pdf(self, image_files, output_pdf):
+        """Convert multiple images to a single PDF file."""
+        if not IMAGE_SUPPORT:
+            raise Exception("Image support not available. Please install Pillow and img2pdf.")
+
+        try:
+            # Use img2pdf to convert images to PDF
+            # img2pdf automatically handles image orientation and A4 sizing
+            with open(output_pdf, 'wb') as f:
+                f.write(img2pdf.convert(image_files))
+            return True
+        except Exception as e:
+            logger.error("Error converting images to PDF: %s", e)
+            return False
+
     @gen.coroutine
     def post(self):
         if not self.request.files.get('file'):
@@ -245,24 +275,103 @@ class UploadHandler(BaseHandler):
         if copies > self.cfg.max_pages:
             self.build_error('you have asked too many copies')
             return
-        fileinfo = self.request.files['file'][0]
-        webFname = fileinfo['filename']
-        extension = ''
-        try:
-            extension = os.path.splitext(webFname)[1]
-        except Exception:
-            pass
+
+        # Get all uploaded files
+        uploaded_files = self.request.files['file']
+
+        # Check if all files are images or if there's a mix
+        all_images = all(self.is_image_file(f['filename']) for f in uploaded_files)
+        all_pdfs = all(f['filename'].lower().endswith('.pdf') for f in uploaded_files)
+
+        # If mixed types, reject
+        if not all_images and not all_pdfs:
+            has_images = any(self.is_image_file(f['filename']) for f in uploaded_files)
+            has_pdfs = any(f['filename'].lower().endswith('.pdf') for f in uploaded_files)
+            if has_images and has_pdfs:
+                self.build_error("cannot mix images and PDF files in one upload")
+                return
+            # Check for unsupported file types
+            for f in uploaded_files:
+                if not self.is_image_file(f['filename']) and not f['filename'].lower().endswith('.pdf'):
+                    self.build_error(f"unsupported file type: {f['filename']}")
+                    return
+
         if not os.path.isdir(self.cfg.queue_dir):
             os.makedirs(self.cfg.queue_dir)
         now = time.strftime('%Y%m%d%H%M%S')
         code = self.generateCode()
-        fname = '%s-%s%s' % (code, now, extension)
-        pname = os.path.join(self.cfg.queue_dir, fname)
-        try:
-            with open(pname, 'wb') as fd:
-                fd.write(fileinfo['body'])
-        except Exception as e:
-            self.build_error("error writing file %s: %s" % (pname, e))
+
+        # Handle multiple images - convert to PDF
+        if all_images and len(uploaded_files) > 1:
+            # Save images temporarily
+            temp_image_files = []
+            try:
+                for idx, fileinfo in enumerate(uploaded_files):
+                    temp_fname = os.path.join(self.cfg.queue_dir, f'temp_{code}_{idx}_{fileinfo["filename"]}')
+                    with open(temp_fname, 'wb') as fd:
+                        fd.write(fileinfo['body'])
+                    temp_image_files.append(temp_fname)
+
+                # Convert images to PDF
+                fname = '%s-%s.pdf' % (code, now)
+                pname = os.path.join(self.cfg.queue_dir, fname)
+                if not self.convert_images_to_pdf(temp_image_files, pname):
+                    self.build_error("failed to convert images to PDF")
+                    return
+
+                webFname = f"{len(uploaded_files)} images combined"
+                extension = '.pdf'
+            finally:
+                # Clean up temporary image files
+                for temp_file in temp_image_files:
+                    try:
+                        os.unlink(temp_file)
+                    except Exception:
+                        pass
+
+        # Handle single image - convert to PDF
+        elif all_images and len(uploaded_files) == 1:
+            fileinfo = uploaded_files[0]
+            temp_fname = os.path.join(self.cfg.queue_dir, f'temp_{code}_{fileinfo["filename"]}')
+            try:
+                with open(temp_fname, 'wb') as fd:
+                    fd.write(fileinfo['body'])
+
+                fname = '%s-%s.pdf' % (code, now)
+                pname = os.path.join(self.cfg.queue_dir, fname)
+                if not self.convert_images_to_pdf([temp_fname], pname):
+                    self.build_error("failed to convert image to PDF")
+                    return
+
+                webFname = fileinfo['filename']
+                extension = '.pdf'
+            finally:
+                try:
+                    os.unlink(temp_fname)
+                except Exception:
+                    pass
+
+        # Handle single PDF (original behavior)
+        elif len(uploaded_files) == 1:
+            fileinfo = uploaded_files[0]
+            webFname = fileinfo['filename']
+            extension = ''
+            try:
+                extension = os.path.splitext(webFname)[1]
+            except Exception:
+                pass
+            fname = '%s-%s%s' % (code, now, extension)
+            pname = os.path.join(self.cfg.queue_dir, fname)
+            try:
+                with open(pname, 'wb') as fd:
+                    fd.write(fileinfo['body'])
+            except Exception as e:
+                self.build_error("error writing file %s: %s" % (pname, e))
+                return
+
+        # Handle multiple PDFs - not supported yet
+        else:
+            self.build_error("multiple PDF files not supported, please upload one PDF or multiple images")
             return
 
         #questo l'ho aggiuto io. ho qualche dubbio su dove settare la variabile config
@@ -315,9 +424,34 @@ class UploadHandler(BaseHandler):
             self.build_error("print only allowed from localhost")
             return
 
+        # Get total pages from PDF before printing (in case file gets archived)
+        total_pages = 0
+        try:
+            p = subprocess.Popen(['pdfinfo', pname], stdout=subprocess.PIPE)
+            out, _ = p.communicate()
+            if p.returncode == 0:
+                out = out.decode('utf-8', errors='ignore')
+                pages_match = re_pages.findall(out)
+                if pages_match:
+                    total_pages = int(pages_match[0])
+        except Exception:
+            pass
+
         # Upload and print directly
         self.print_file(pname)
-        self.build_success("file sent to printer")
+
+        # Build success response with details
+        total_images = len(uploaded_files) if all_images else 0
+
+        response = {"error": False, "message": "file sent to printer"}
+        if total_images > 0 or total_pages > 0:
+            response["details"] = {}
+            if total_images > 0:
+                response["details"]["total_images"] = total_images
+            if total_pages > 0:
+                response["details"]["total_pages"] = total_pages
+
+        self.write(response)
 
 
 class TemplateHandler(BaseHandler):
