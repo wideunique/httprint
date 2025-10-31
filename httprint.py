@@ -42,6 +42,33 @@ try:
 except ImportError:
     IMAGE_SUPPORT = False
 
+# Check for LibreOffice availability
+OFFICE_SUPPORT = False
+LIBREOFFICE_CMD = None
+
+def check_libreoffice():
+    """Check if LibreOffice is available."""
+    global OFFICE_SUPPORT, LIBREOFFICE_CMD
+
+    # Try common LibreOffice command names
+    for cmd in ['libreoffice', 'soffice', '/Applications/LibreOffice.app/Contents/MacOS/soffice']:
+        try:
+            result = subprocess.run([cmd, '--version'],
+                                   capture_output=True,
+                                   timeout=5,
+                                   text=True)
+            if result.returncode == 0:
+                OFFICE_SUPPORT = True
+                LIBREOFFICE_CMD = cmd
+                logger.info(f"LibreOffice found: {cmd}")
+                logger.info(f"Version: {result.stdout.strip()}")
+                return True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+
+    logger.warning("LibreOffice not found. Office document support disabled.")
+    return False
+
 API_VERSION = '1.0'
 QUEUE_DIR = 'queue'
 ARCHIVE = True
@@ -254,6 +281,69 @@ class UploadHandler(BaseHandler):
             logger.error("Error converting images to PDF: %s", e)
             return False
 
+    def is_office_file(self, filename):
+        """Check if file is an Office document based on extension."""
+        if not OFFICE_SUPPORT:
+            return False
+        office_extensions = {'.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'}
+        ext = os.path.splitext(filename.lower())[1]
+        return ext in office_extensions
+
+    def convert_office_to_pdf(self, office_file, output_pdf, timeout=60):
+        """Convert Office document to PDF using LibreOffice."""
+        if not OFFICE_SUPPORT:
+            raise Exception("Office document support not available. Please install LibreOffice.")
+
+        try:
+            # Get the directory where the output PDF should be created
+            output_dir = os.path.dirname(output_pdf)
+
+            # LibreOffice command to convert to PDF
+            cmd = [
+                LIBREOFFICE_CMD,
+                '--headless',
+                '--convert-to', 'pdf',
+                '--outdir', output_dir,
+                office_file
+            ]
+
+            logger.info(f"Converting Office document to PDF: {' '.join(cmd)}")
+
+            # Run conversion with timeout
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=timeout,
+                text=True
+            )
+
+            if result.returncode != 0:
+                logger.error(f"LibreOffice conversion failed: {result.stderr}")
+                return False, f"conversion failed: {result.stderr}"
+
+            # LibreOffice creates a file with the same name but .pdf extension
+            # in the output directory
+            base_name = os.path.splitext(os.path.basename(office_file))[0]
+            expected_pdf = os.path.join(output_dir, f"{base_name}.pdf")
+
+            # If the expected PDF exists and is different from output_pdf, rename it
+            if os.path.exists(expected_pdf) and expected_pdf != output_pdf:
+                shutil.move(expected_pdf, output_pdf)
+
+            if not os.path.exists(output_pdf):
+                logger.error(f"Converted PDF not found: {output_pdf}")
+                return False, "converted PDF not found"
+
+            logger.info(f"Successfully converted to PDF: {output_pdf}")
+            return True, None
+
+        except subprocess.TimeoutExpired:
+            logger.error(f"LibreOffice conversion timeout after {timeout} seconds")
+            return False, f"conversion timeout after {timeout} seconds"
+        except Exception as e:
+            logger.error(f"Error converting Office document to PDF: {e}")
+            return False, str(e)
+
     @gen.coroutine
     def post(self):
         if not self.request.files.get('file'):
@@ -279,20 +369,29 @@ class UploadHandler(BaseHandler):
         # Get all uploaded files
         uploaded_files = self.request.files['file']
 
-        # Check if all files are images or if there's a mix
+        # Check if all files are images, PDFs, or Office documents
         all_images = all(self.is_image_file(f['filename']) for f in uploaded_files)
         all_pdfs = all(f['filename'].lower().endswith('.pdf') for f in uploaded_files)
+        all_office = all(self.is_office_file(f['filename']) for f in uploaded_files)
 
-        # If mixed types, reject
-        if not all_images and not all_pdfs:
-            has_images = any(self.is_image_file(f['filename']) for f in uploaded_files)
-            has_pdfs = any(f['filename'].lower().endswith('.pdf') for f in uploaded_files)
-            if has_images and has_pdfs:
-                self.build_error("cannot mix images and PDF files in one upload")
+        # Count file types
+        has_images = any(self.is_image_file(f['filename']) for f in uploaded_files)
+        has_pdfs = any(f['filename'].lower().endswith('.pdf') for f in uploaded_files)
+        has_office = any(self.is_office_file(f['filename']) for f in uploaded_files)
+
+        # Check for mixed types or unsupported files
+        if not all_images and not all_pdfs and not all_office:
+            # Check for mixed types
+            type_count = sum([has_images, has_pdfs, has_office])
+            if type_count > 1:
+                self.build_error("cannot mix different file types in one upload")
                 return
+
             # Check for unsupported file types
             for f in uploaded_files:
-                if not self.is_image_file(f['filename']) and not f['filename'].lower().endswith('.pdf'):
+                if not self.is_image_file(f['filename']) and \
+                   not f['filename'].lower().endswith('.pdf') and \
+                   not self.is_office_file(f['filename']):
                     self.build_error(f"unsupported file type: {f['filename']}")
                     return
 
@@ -348,6 +447,35 @@ class UploadHandler(BaseHandler):
             finally:
                 try:
                     os.unlink(temp_fname)
+                except Exception:
+                    pass
+
+        # Handle Office document - convert to PDF
+        elif all_office and len(uploaded_files) == 1:
+            fileinfo = uploaded_files[0]
+            webFname = fileinfo['filename']
+            original_ext = os.path.splitext(webFname)[1].lower()
+
+            # Save Office file temporarily
+            temp_office_fname = os.path.join(self.cfg.queue_dir, f'temp_{code}_{fileinfo["filename"]}')
+            try:
+                with open(temp_office_fname, 'wb') as fd:
+                    fd.write(fileinfo['body'])
+
+                # Convert to PDF
+                fname = '%s-%s.pdf' % (code, now)
+                pname = os.path.join(self.cfg.queue_dir, fname)
+
+                success, error_msg = self.convert_office_to_pdf(temp_office_fname, pname)
+                if not success:
+                    self.build_error(f"failed to convert Office document to PDF: {error_msg}")
+                    return
+
+                extension = '.pdf'
+            finally:
+                # Clean up temporary Office file
+                try:
+                    os.unlink(temp_office_fname)
                 except Exception:
                     pass
 
@@ -442,12 +570,19 @@ class UploadHandler(BaseHandler):
 
         # Build success response with details
         total_images = len(uploaded_files) if all_images else 0
+        original_format = None
+
+        # Determine original format for Office documents
+        if all_office:
+            original_format = os.path.splitext(webFname)[1].lower().lstrip('.')
 
         response = {"error": False, "message": "file sent to printer"}
-        if total_images > 0 or total_pages > 0:
+        if total_images > 0 or total_pages > 0 or original_format:
             response["details"] = {}
             if total_images > 0:
                 response["details"]["total_images"] = total_images
+            if original_format:
+                response["details"]["original_format"] = original_format
             if total_pages > 0:
                 response["details"]["total_pages"] = total_pages
 
@@ -486,9 +621,12 @@ def serve():
     define('debug', default=False, help='run in debug mode', type=bool)
     define('demo', default=False, help='enable demo mode (simulate printing without calling real printer)', type=bool)
     tornado.options.parse_command_line()
-    
+
     if options.debug:
         logger.setLevel(logging.DEBUG)
+
+    # Check for LibreOffice availability
+    check_libreoffice()
 
     ssl_options = {}
     if os.path.isfile(options.ssl_key) and os.path.isfile(options.ssl_cert):
