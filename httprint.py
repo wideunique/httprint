@@ -24,6 +24,7 @@ import shutil
 import logging
 import subprocess
 import multiprocessing as mp
+import threading
 
 from tornado.ioloop import IOLoop
 import tornado.httpserver
@@ -38,7 +39,7 @@ API_VERSION = '1.0'
 QUEUE_DIR = 'queue'
 ARCHIVE = True
 ARCHIVE_DIR = 'archive'
-PRINT_CMD = 'lp -n %(copies)s -o sides=%(sides)s -o sides=%(media)s'
+PRINT_CMD = 'lp -n %(copies)s -o sides=%(sides)s -o media=%(media)s'
 
 CODE_DIGITS = 4
 MAX_PAGES = 10
@@ -135,13 +136,13 @@ class BaseHandler(tornado.web.RequestHandler):
                 pass
 
     def run_subprocess(self, cmd, fname, callback=None):
-        """Execute the given action.
+        """Execute the given action asynchronously.
 
-        :param cmd: the command to be run with its command line arguments
-        :type cmd: list
+        Use a thread to avoid multiprocessing pickling issues with bound methods
+        under spawn start-method environments (e.g., macOS/Python 3.8+).
         """
-        p = mp.Process(target=self._run, args=(cmd, fname, callback))
-        p.start()
+        t = threading.Thread(target=self._run, args=(cmd, fname, callback), daemon=True)
+        t.start()
 
     def print_file(self, fname):
         copies = 1

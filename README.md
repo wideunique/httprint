@@ -7,18 +7,18 @@ A very simple web interface to upload and print files.
 
 Dependencies:
 * Python 3
-* **pdfinfo** executable; usually found in the **poppler-utils** package
+* **pdfinfo** executable (package: **poppler-utils**)
+* **lp** command (CUPS client) available in PATH
 
+Recommended (virtualenv):
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-To install it:
-``` bash
-wget https://bootstrap.pypa.io/get-pip.py
-sudo python3 get-pip.py
-# if you want to install these modules for an unprivileged user, add --user and remove "sudo";
-# if you want to upgrade the versions already present in the system, also add --upgrade
-sudo pip3 install tornado
-git clone https://github.com/alberanid/httprint
-cd httprint
+Run the server:
+```bash
 ./httprint.py --debug
 ```
 
@@ -37,6 +37,16 @@ See the **--help** output for more options.
 
 Once a document is queued, it can be made persistent creating an empty file *code-docname.pdf.keep* in the *queue* directory.
 
+## Development & Tests
+
+Install dev deps and run tests (pytest):
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+CI runs on GitHub Actions for Python 3.10–3.12 and executes the same pytest command.
+
 
 # License and copyright
 
@@ -51,4 +61,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
