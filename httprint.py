@@ -157,32 +157,29 @@ class BaseHandler(tornado.web.RequestHandler):
             copies = 1
         sides = printconf.get('sides')
         media = printconf.get('media')
-        
+
         print_cmd = self.cfg.print_cmd.split(' ')
         cmd = [x % {'copies': copies, 'sides': sides, 'media': media} for x in print_cmd] + [fname]
         print (cmd)
-        self.run_subprocess(cmd, fname, self._archive)
 
-class PrintHandler(BaseHandler):
-    """File print handler."""
-    @gen.coroutine
-    def post(self, code=None):
-        if not code:
-            self.build_error("empty code")
-            return
-        remote_ip = self.request.headers.get("X-Real-IP") or \
-            self.request.headers.get("X-Forwarded-For") or \
-            self.request.remote_ip
-        if remote_ip not in ('127.0.0.1', '::1', 'localhost'):
-            self.build_error("invalid caller")
-            return
-        files = [x for x in sorted(glob.glob(self.cfg.queue_dir + '/%s-*' % code))
-                 if not x.endswith('.info') and not x.endswith('.keep')]
-        if not files:
-            self.build_error("no matching files")
-            return
-        self.print_file(files[0])
-        self.build_success("file sent to printer")
+        # Demo mode: simulate printing without calling real printer
+        if self.cfg.demo:
+            import time
+            simulated_job_id = f"demo-print-{int(time.time())}"
+            logger.info("[DEMO MODE] Would execute print command:")
+            logger.info("Command: %s", ' '.join(cmd))
+            logger.info("File: %s", fname)
+            logger.info("Copies: %d", copies)
+            logger.info("Sides: %s", sides)
+            logger.info("Media: %s", media)
+            logger.info("Simulated job ID: %s", simulated_job_id)
+            # Still perform archiving if enabled
+            # Create a mock process object for _archive callback
+            class MockProcess:
+                returncode = 0
+            self._archive(cmd, fname, MockProcess())
+        else:
+            self.run_subprocess(cmd, fname, self._archive)
 
 class QueryHandler(BaseHandler):
     """File print handler."""
@@ -238,14 +235,6 @@ class UploadHandler(BaseHandler):
         sides = "two-sided-long-edge"
         media = "A4"
         color = False
-
-        # Check if direct print is requested
-        print_now = False
-        try:
-            print_now_arg = self.get_argument('print_now', default='false').lower()
-            print_now = print_now_arg in ('true', '1', 'yes')
-        except Exception:
-            pass
 
         try:
             copies = int(self.get_argument('copies'))
@@ -318,22 +307,17 @@ class UploadHandler(BaseHandler):
                     pass
             return
 
-        # Handle direct print or return code
-        if print_now:
-            # Check if request is from localhost (security check)
-            remote_ip = self.request.headers.get("X-Real-IP") or \
-                self.request.headers.get("X-Forwarded-For") or \
-                self.request.remote_ip
-            if remote_ip not in ('127.0.0.1', '::1', 'localhost'):
-                self.build_error("direct print only allowed from localhost")
-                return
-            self.print_file(pname)
-            self.build_success("file sent to printer")
-        elif self.cfg.print_with_code:
-            self.build_success("go to the printer and enter this code: %s" % code)
-        else:
-            self.print_file(pname)
-            self.build_success("file sent to printer")
+        # Check if request is from localhost (security check)
+        remote_ip = self.request.headers.get("X-Real-IP") or \
+            self.request.headers.get("X-Forwarded-For") or \
+            self.request.remote_ip
+        if remote_ip not in ('127.0.0.1', '::1', 'localhost'):
+            self.build_error("print only allowed from localhost")
+            return
+
+        # Upload and print directly
+        self.print_file(pname)
+        self.build_success("file sent to printer")
 
 
 class TemplateHandler(BaseHandler):
@@ -366,6 +350,7 @@ def serve():
     define('check-pdf-pages', default=True, help='check that the number of pages of PDF files do not exeed --max-pages', type=bool)
     define('print-cmd', default=PRINT_CMD, help='command used to print the documents')
     define('debug', default=False, help='run in debug mode', type=bool)
+    define('demo', default=False, help='enable demo mode (simulate printing without calling real printer)', type=bool)
     tornado.options.parse_command_line()
     
     if options.debug:
@@ -378,14 +363,11 @@ def serve():
     init_params = dict(listen_port=options.port, logger=logger, ssl_options=ssl_options, cfg=options)
 
     _upload_path = r'upload/?'
-    _print_path = r'print/(?P<code>\d+)'
     _query_path = r'query/(?P<code>\d+)'
     _query_path_ppd = r'query/(?P<code>\d+)/(?P<ppd>\d+)'
     application = tornado.web.Application([
             (r'/api/%s' % _upload_path, UploadHandler, init_params),
             (r'/api/v%s/%s' % (API_VERSION, _upload_path), UploadHandler, init_params),
-            (r'/api/%s' % _print_path, PrintHandler, init_params),
-            (r'/api/v%s/%s' % (API_VERSION, _print_path), PrintHandler, init_params),
             (r'/api/%s' % _query_path, QueryHandler, init_params),
             (r'/api/v%s/%s' % (API_VERSION, _query_path), QueryHandler, init_params),
             (r'/api/%s' % _query_path_ppd, QueryHandler, init_params),
