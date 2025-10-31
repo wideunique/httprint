@@ -48,7 +48,7 @@ PRINT_WITH_CODE = True
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-re_pages = re.compile('^Pages:\s+(\d+)$', re.M | re.I)
+re_pages = re.compile(r'^Pages:\s+(\d+)$', re.M | re.I)
 
 
 class HTTPrintBaseException(Exception):
@@ -211,7 +211,7 @@ class UploadHandler(BaseHandler):
     def generateCode(self):
         filler = '%0' + str(self.cfg.code_digits) + 'd'
         existing = set()
-        re_code = re.compile('(\d{' + str(self.cfg.code_digits) + '})-.*')
+        re_code = re.compile(r'(\d{' + str(self.cfg.code_digits) + r'})-.*')
         for fname in glob.glob(self.cfg.queue_dir + '/*'):
             fname = os.path.basename(fname)
             match = re_code.match(fname)
@@ -239,6 +239,13 @@ class UploadHandler(BaseHandler):
         media = "A4"
         color = False
 
+        # Check if direct print is requested
+        print_now = False
+        try:
+            print_now_arg = self.get_argument('print_now', default='false').lower()
+            print_now = print_now_arg in ('true', '1', 'yes')
+        except Exception:
+            pass
 
         try:
             copies = int(self.get_argument('copies'))
@@ -310,7 +317,19 @@ class UploadHandler(BaseHandler):
                 except Exception:
                     pass
             return
-        if self.cfg.print_with_code:
+
+        # Handle direct print or return code
+        if print_now:
+            # Check if request is from localhost (security check)
+            remote_ip = self.request.headers.get("X-Real-IP") or \
+                self.request.headers.get("X-Forwarded-For") or \
+                self.request.remote_ip
+            if remote_ip not in ('127.0.0.1', '::1', 'localhost'):
+                self.build_error("direct print only allowed from localhost")
+                return
+            self.print_file(pname)
+            self.build_success("file sent to printer")
+        elif self.cfg.print_with_code:
             self.build_success("go to the printer and enter this code: %s" % code)
         else:
             self.print_file(pname)
