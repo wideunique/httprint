@@ -548,9 +548,9 @@ class UploadHandler(BaseHandler):
         remote_ip = self.request.headers.get("X-Real-IP") or \
             self.request.headers.get("X-Forwarded-For") or \
             self.request.remote_ip
-        if remote_ip not in ('127.0.0.1', '::1', 'localhost'):
-            self.build_error("print only allowed from localhost")
-            return
+        # if remote_ip not in ('127.0.0.1', '::1', 'localhost'):
+        #     self.build_error("print only allowed from localhost")
+        #     return
 
         # Get total pages from PDF before printing (in case file gets archived)
         total_pages = 0
