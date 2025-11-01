@@ -413,7 +413,8 @@ class UploadHandler(BaseHandler):
             with open(output_pdf, 'wb') as f:
                 f.write(img2pdf.convert(
                     image_files,
-                    layout_fun=layout_fun
+                    layout_fun=layout_fun,
+                    rotation=img2pdf.Rotation.ifvalid
                 ))
 
             logger.info("Converted %d image(s) to PDF with A4 page fitting", len(image_files))
