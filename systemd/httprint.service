@@ -1,0 +1,22 @@
+[Unit]
+Description=HTTPrint web print service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=APP_ROOT=/opt/httprint
+Environment=PYTHON_BIN=/usr/bin/python3
+Environment=HTTPRINT_CONFIG=/etc/httprint/config.yaml
+EnvironmentFile=-/etc/httprint/httprint.env
+WorkingDirectory=$APP_ROOT
+ExecStart=$PYTHON_BIN $APP_ROOT/httprint.py
+Restart=on-failure
+RestartSec=5
+User=httprint
+Group=httprint
+RuntimeDirectory=httprint
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

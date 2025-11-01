@@ -59,6 +59,33 @@ See `config.yaml` for the complete list of switches and their defaults.
 
 Once a document is queued, it can be made persistent creating an empty file *code-docname.pdf.keep* in the *queue* directory.
 
+### Running with systemd
+
+1. Create a dedicated user and deployment directory:
+   ```bash
+   sudo useradd --system --home /opt/httprint --shell /usr/sbin/nologin httprint
+   sudo mkdir -p /opt/httprint
+   sudo chown httprint:httprint /opt/httprint
+   ```
+2. Deploy the application (for example via git) into `/opt/httprint`, set up the virtualenv, and copy `config.example.yaml` to `/etc/httprint/config.yaml` editing credentials and paths as needed.
+3. Install the service unit and optional environment overrides:
+   ```bash
+   sudo cp systemd/httprint.service /etc/systemd/system/httprint.service
+   sudo mkdir -p /etc/httprint
+   sudo cp systemd/httprint.env.example /etc/httprint/httprint.env
+   ```
+   Adjust `/etc/httprint/httprint.env` to point `APP_ROOT`, `PYTHON_BIN`, and `HTTPRINT_CONFIG` to the right locations.
+4. Reload systemd and enable the service:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now httprint.service
+   ```
+5. Check status and logs:
+   ```bash
+   sudo systemctl status httprint.service
+   journalctl -u httprint.service -f
+   ```
+
 ## Development & Tests
 
 Install dev deps and run tests (pytest):
