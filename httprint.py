@@ -25,11 +25,14 @@ import logging
 import subprocess
 import multiprocessing as mp
 import threading
+import base64
+from ipaddress import ip_address, ip_network
+from types import SimpleNamespace
+
+import yaml
 
 from tornado.ioloop import IOLoop
 import tornado.httpserver
-import tornado.options
-from tornado.options import define, options
 import tornado.web
 from tornado import gen, escape
 
@@ -81,6 +84,69 @@ PRINT_WITH_CODE = True
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE_ENV = 'HTTPRINT_CONFIG'
+CONFIG_DEFAULT_FILENAME = 'config.yaml'
+
+DEFAULT_CONFIG = {
+    'port': 7777,
+    'address': '',
+    'ssl_cert': os.path.join(BASE_DIR, 'ssl', 'httprint_cert.pem'),
+    'ssl_key': os.path.join(BASE_DIR, 'ssl', 'httprint_key.pem'),
+    'code_digits': CODE_DIGITS,
+    'max_pages': MAX_PAGES,
+    'queue_dir': QUEUE_DIR,
+    'archive': ARCHIVE,
+    'archive_dir': ARCHIVE_DIR,
+    'print_with_code': PRINT_WITH_CODE,
+    'pdf_only': True,
+    'check_pdf_pages': True,
+    'print_cmd': PRINT_CMD,
+    'debug': False,
+    'demo': False,
+    'ip_whitelist': ['127.0.0.1/32', '::1/128'],
+    'auth_username': '',
+    'auth_password': '',
+}
+
+
+def load_config(path=None):
+    """Load configuration from YAML, applying defaults."""
+    if path is None:
+        path = os.environ.get(CONFIG_FILE_ENV) or os.path.join(BASE_DIR, CONFIG_DEFAULT_FILENAME)
+
+    data = {}
+    if path and os.path.isfile(path):
+        with open(path, 'r', encoding='utf-8') as fh:
+            loaded = yaml.safe_load(fh) or {}
+        if not isinstance(loaded, dict):
+            raise RuntimeError("Configuration file must contain a mapping at the top level")
+        data = loaded
+    elif path and os.path.exists(path):
+        raise RuntimeError(f"Configuration path exists but is not a file: {path}")
+
+    config = DEFAULT_CONFIG.copy()
+    for key, value in data.items():
+        normalized_key = key.replace('-', '_')
+        config[normalized_key] = value
+
+    whitelist_entries = config.get('ip_whitelist') or []
+    if isinstance(whitelist_entries, str):
+        whitelist_entries = [entry.strip() for entry in whitelist_entries.split(',')]
+    config['ip_whitelist'] = [entry for entry in whitelist_entries if entry]
+
+    networks = []
+    for entry in config['ip_whitelist']:
+        try:
+            networks.append(ip_network(entry, strict=False))
+        except ValueError:
+            logger.warning('Invalid IP whitelist entry ignored: %s', entry)
+    config['ip_whitelist_networks'] = networks
+    config['auth_username'] = (config.get('auth_username') or '').strip()
+    config['auth_password'] = (config.get('auth_password') or '').strip()
+
+    return SimpleNamespace(**config)
 
 re_pages = re.compile(r'^Pages:\s+(\d+)$', re.M | re.I)
 
@@ -148,6 +214,70 @@ class BaseHandler(tornado.web.RequestHandler):
         """
         self.set_status(status)
         self.write({'error': False, 'message': message})
+
+    # --- Access control helpers -------------------------------------------------
+
+    def prepare(self):
+        """Ensure the request satisfies IP whitelist or Basic auth requirements."""
+        super().prepare()
+        self._enforce_access_control()
+
+    def _enforce_access_control(self):
+        client_ip = self._get_client_ip()
+        if self._is_ip_whitelisted(client_ip):
+            return
+        username = getattr(self.cfg, 'auth_username', '') or ''
+        password = getattr(self.cfg, 'auth_password', '') or ''
+        if not username or not password:
+            self._auth_failed()
+        header = self.request.headers.get('Authorization', '')
+        if not header.startswith('Basic '):
+            self._auth_failed()
+        encoded = header.split(' ', 1)[1].strip()
+        try:
+            decoded = base64.b64decode(encoded).decode('utf-8')
+        except Exception:
+            self._auth_failed()
+            return
+        if ':' not in decoded:
+            self._auth_failed()
+            return
+        user, pwd = decoded.split(':', 1)
+        if not (user == username and pwd == password):
+            self._auth_failed()
+
+    def _auth_failed(self):
+        """Abort the request with a 401 response."""
+        self.set_header('WWW-Authenticate', 'Basic realm="httprint"')
+        self.build_error('authentication required', status=401)
+        raise tornado.web.Finish()
+
+    def _get_client_ip(self):
+        """Return the best-effort client IP."""
+        headers = self.request.headers
+        forwarded_for = headers.get('X-Forwarded-For')
+        if forwarded_for:
+            candidate = forwarded_for.split(',')[0].strip()
+            if candidate:
+                return candidate
+        real_ip = headers.get('X-Real-IP')
+        if real_ip:
+            return real_ip.strip()
+        return self.request.remote_ip
+
+    def _is_ip_whitelisted(self, ip_text):
+        """Check whether the given IP string is contained in the configured whitelist."""
+        networks = getattr(self.cfg, 'ip_whitelist_networks', []) or []
+        if not ip_text or not networks:
+            return False
+        try:
+            candidate = ip_address(ip_text)
+        except ValueError:
+            return False
+        for network in networks:
+            if candidate in network:
+                return True
+        return False
 
     def _run(self, cmd, fname, callback=None):
         p = subprocess.Popen(cmd, close_fds=True)
@@ -555,14 +685,6 @@ class UploadHandler(BaseHandler):
                     pass
             return
 
-        # Check if request is from localhost (security check)
-        remote_ip = self.request.headers.get("X-Real-IP") or \
-            self.request.headers.get("X-Forwarded-For") or \
-            self.request.remote_ip
-        # if remote_ip not in ('127.0.0.1', '::1', 'localhost'):
-        #     self.build_error("print only allowed from localhost")
-        #     return
-
         # Get total pages from PDF before printing (in case file gets archived)
         total_pages = 0
         try:
@@ -612,38 +734,22 @@ class TemplateHandler(BaseHandler):
         self.render(page, **arguments)
 
 
-def serve():
-    """Read configuration and start the server."""
-    define('port', default=7777, help='run on the given port', type=int)
-    define('address', default='', help='bind the server at the given address', type=str)
-    define('ssl_cert', default=os.path.join(os.path.dirname(__file__), 'ssl', 'httprint_cert.pem'),
-            help='specify the SSL certificate to use for secure connections')
-    define('ssl_key', default=os.path.join(os.path.dirname(__file__), 'ssl', 'httprint_key.pem'),
-            help='specify the SSL private key to use for secure connections')
-    define('code-digits', default=CODE_DIGITS, help='number of digits of the code', type=int)
-    define('max-pages', default=MAX_PAGES, help='maximum number of pages to print', type=int)
-    define('queue-dir', default=QUEUE_DIR, help='directory to store files before they are printed', type=str)
-    define('archive', default=True, help='archive printed files', type=bool)
-    define('archive-dir', default=ARCHIVE_DIR, help='directory to archive printed files', type=str)
-    define('print-with-code', default=True, help='a code must be entered for printing', type=bool)
-    define('pdf-only', default=True, help='only print PDF files', type=bool)
-    define('check-pdf-pages', default=True, help='check that the number of pages of PDF files do not exeed --max-pages', type=bool)
-    define('print-cmd', default=PRINT_CMD, help='command used to print the documents')
-    define('debug', default=False, help='run in debug mode', type=bool)
-    define('demo', default=False, help='enable demo mode (simulate printing without calling real printer)', type=bool)
-    tornado.options.parse_command_line()
+def serve(config_path=None):
+    """Read YAML configuration and start the server."""
+    cfg = load_config(config_path)
 
-    if options.debug:
+    if cfg.debug:
         logger.setLevel(logging.DEBUG)
 
     # Check for LibreOffice availability
     check_libreoffice()
 
     ssl_options = {}
-    if os.path.isfile(options.ssl_key) and os.path.isfile(options.ssl_cert):
-        ssl_options = dict(certfile=options.ssl_cert, keyfile=options.ssl_key)
+    if cfg.ssl_key and cfg.ssl_cert and \
+            os.path.isfile(cfg.ssl_key) and os.path.isfile(cfg.ssl_cert):
+        ssl_options = dict(certfile=cfg.ssl_cert, keyfile=cfg.ssl_key)
 
-    init_params = dict(listen_port=options.port, logger=logger, ssl_options=ssl_options, cfg=options)
+    init_params = dict(listen_port=cfg.port, logger=logger, ssl_options=ssl_options, cfg=cfg)
 
     _upload_path = r'upload/?'
     _query_path = r'query/(?P<code>\d+)'
@@ -659,12 +765,12 @@ def serve():
         ],
         static_path=os.path.join(os.path.dirname(__file__), 'dist/static'),
         template_path=os.path.join(os.path.dirname(__file__), 'dist/'),
-        debug=options.debug)
+        debug=cfg.debug)
     http_server = tornado.httpserver.HTTPServer(application, ssl_options=ssl_options or None)
     logger.info('Start serving on %s://%s:%d', 'https' if ssl_options else 'http',
-                                                 options.address if options.address else '127.0.0.1',
-                                                 options.port)
-    http_server.listen(options.port, options.address)
+                                                 cfg.address if cfg.address else '127.0.0.1',
+                                                 cfg.port)
+    http_server.listen(cfg.port, cfg.address)
     try:
         IOLoop.instance().start()
     except (KeyboardInterrupt, SystemExit):

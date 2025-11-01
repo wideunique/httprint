@@ -17,23 +17,45 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Run the server:
+Configure the service editing `config.yaml` (or another file pointed by the
+`HTTPRINT_CONFIG` environment variable), then run:
 ```bash
-./httprint.py --debug
+./httprint.py
 ```
 
 Now you can **point your browser to [http://localhost:7777/](http://localhost:7777/)**
 
 You can also **run the server in https**, putting in the *ssl* directory two files named *httprint_key.pem* and *httprint_cert.pem*
 
-By default:
+### Configuration
 
-* the **--print-with-code** argument is true, and the uploaded files are just scheduled for priting. To actually print them, you should supply the generated code, for example: `curl -X POST http://localhost:7777/api/print/1234`
-* **--max-pages** is set to 10, limiting the number of allowed copies
-* **--pdf-only** is true, meaning that only PDF files are allowed
-* **--check-pdf-pages** is true, and the number of pages of a PDF are taken into consideration, calculating the maximum number of pages to print
+All runtime settings now live in YAML. The default file is `config.yaml` in the
+repository root; set `HTTPRINT_CONFIG` to override the location. Example:
 
-See the **--help** output for more options.
+```yaml
+port: 7777
+queue_dir: queue
+archive: true
+print_cmd: "lp -n %(copies)s -o sides=%(sides)s -o media=%(media)s"
+ip_whitelist:
+  - 127.0.0.1/32
+  - 192.168.5.0/24
+auth_username: printer
+auth_password: s3cret
+```
+
+Clients whose IP falls inside an entry listed in `ip_whitelist` bypass Basic
+authentication. Everyone else must authenticate with the configured
+`auth_username`/`auth_password` pair.
+
+Default values (override them in the YAML file):
+
+* **print_with_code** is true, and the uploaded files are just scheduled for priting. To actually print them, you should supply the generated code, for example: `curl -X POST http://localhost:7777/api/print/1234`
+* **max_pages** is set to 10, limiting the number of allowed copies
+* **pdf_only** is true, meaning that only PDF files are allowed
+* **check_pdf_pages** is true, and the number of pages of a PDF are taken into consideration, calculating the maximum number of pages to print
+
+See `config.yaml` for the complete list of switches and their defaults.
 
 Once a document is queued, it can be made persistent creating an empty file *code-docname.pdf.keep* in the *queue* directory.
 

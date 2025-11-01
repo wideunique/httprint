@@ -10,3 +10,4 @@ ssl/*.pem
 .editorconfig
 .idea
 .venv/
+config.yaml
