@@ -21,6 +21,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+          pip install Pillow img2pdf
       - name: Run tests
         run: pytest -q
-

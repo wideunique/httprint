@@ -14,7 +14,13 @@ def _load_module():
     return mod
 
 
+
 httprint = _load_module()
+
+if not getattr(httprint, 'IMAGE_SUPPORT', False) or not hasattr(httprint, 'img2pdf'):
+    import pytest
+    pytest.skip('image conversion dependencies not available', allow_module_level=True)
+
 
 
 def test_convert_images_to_pdf_uses_safe_rotation(tmp_path, monkeypatch):
