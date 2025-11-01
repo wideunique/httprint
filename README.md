@@ -61,11 +61,13 @@ Once a document is queued, it can be made persistent creating an empty file *cod
 
 ### Partial printing
 
-Uploads (including the web UI) may specify an optional `pages` field using a
-comma-separated list of page numbers and ranges (for example `1-3,5`). The value
-gets validated against the PDF's total page count and, when present, HTTPrint
-invokes the underlying print command with `-o page-ranges=...`. Leaving it blank
-prints the entire document.
+Uploads (including the web UI) may specify optional fields:
+
+* `pages` — comma-separated page numbers and ranges (for example `1-3,5`). The
+  value is validated against the PDF page count and translated to
+  `-o page-ranges=...`; leaving it blank prints the entire document.
+* `double_sided` — defaults to `true`. Set to `false` to force single-sided
+  printing (mapped to `-o sides=one-sided`).
 
 ### Running with systemd
 

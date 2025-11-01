@@ -56,6 +56,8 @@
             copiesInput: document.getElementById('copies'),
             pagesGroup: document.getElementById('pages-group'),
             pagesInput: document.getElementById('pages'),
+            doubleSidedGroup: document.getElementById('double-sided-group'),
+            doubleSidedInput: document.getElementById('double-sided'),
             actionButtons: document.getElementById('action-buttons'),
             printBtn: document.getElementById('print-btn'),
             printBtnText: document.getElementById('print-btn-text'),
@@ -197,6 +199,7 @@
             elements.fileInfoDisplay.style.display = 'none';
             elements.copiesGroup.style.display = 'none';
             elements.pagesGroup.style.display = 'none';
+            elements.doubleSidedGroup.style.display = 'none';
             elements.actionButtons.style.display = 'none';
             elements.printBtn.disabled = true;
             return;
@@ -221,6 +224,7 @@
         // Show copies and action buttons
         elements.copiesGroup.style.display = 'block';
         elements.pagesGroup.style.display = 'block';
+        elements.doubleSidedGroup.style.display = 'block';
         elements.actionButtons.style.display = 'flex';
         elements.printBtn.disabled = false;
     }
@@ -328,6 +332,7 @@
         state.files = [];
         elements.fileInput.value = '';
         elements.pagesInput.value = '';
+        elements.doubleSidedInput.checked = true;
         updateUI();
     }
 
@@ -359,6 +364,7 @@
         // Create FormData
         const formData = new FormData();
         const copies = elements.copiesInput.value;
+        const doubleSided = elements.doubleSidedInput.checked;
 
         // Add files to FormData
         state.files.forEach(file => {
@@ -368,6 +374,7 @@
         if (pages) {
             formData.append('pages', pages);
         }
+        formData.append('double_sided', doubleSided ? 'true' : 'false');
 
         // Upload using XMLHttpRequest for progress tracking
         const xhr = new XMLHttpRequest();
@@ -433,6 +440,9 @@
             if (response.details.page_ranges) {
                 details.push(`打印页码: ${response.details.page_ranges}`);
             }
+            if (Object.prototype.hasOwnProperty.call(response.details, 'double_sided')) {
+                details.push(`双面打印: ${response.details.double_sided ? '是' : '否'}`);
+            }
 
             if (details.length > 0) {
                 message += '<br><small>' + details.join(' | ') + '</small>';
@@ -445,6 +455,7 @@
         clearFiles();
         elements.copiesInput.value = 1;
         elements.pagesInput.value = '';
+        elements.doubleSidedInput.checked = true;
         elements.printBtnText.style.display = 'inline';
         elements.printSpinner.style.display = 'none';
         elements.clearBtn.disabled = false;

@@ -536,7 +536,6 @@ class UploadHandler(BaseHandler):
         copies = 1
 
         #questi per ora stanno qui perche' non sso come implemtare la parte web
-        sides = "two-sided-long-edge"
         media = "A4"
         color = False
 
@@ -553,6 +552,18 @@ class UploadHandler(BaseHandler):
         page_spec = self.get_argument('pages', default=None)
         if page_spec is not None:
             page_spec = page_spec.strip() or None
+
+        double_param = self.get_argument('double_sided', default='true')
+        double_str = str(double_param).strip().lower() if double_param is not None else 'true'
+        if double_str in ('true', '1', 'yes', 'on'):
+            double_sided = True
+        elif double_str in ('false', '0', 'no', 'off'):
+            double_sided = False
+        else:
+            self.build_error('invalid value for double_sided')
+            return
+
+        sides = "two-sided-long-edge" if double_sided else "one-sided"
 
         # Get all uploaded files
         uploaded_files = self.request.files['file']
@@ -700,8 +711,7 @@ class UploadHandler(BaseHandler):
         printconf['sides'] = '%s' % sides
         printconf['media'] = '%s' % media
         printconf['color'] = '%s' % color
-        if page_spec:
-            printconf['page_ranges'] = page_spec
+        printconf['double_sided'] = 'true' if double_sided else 'false'
 
         failure = False
         if self.cfg.check_pdf_pages or self.cfg.pdf_only:
@@ -779,7 +789,7 @@ class UploadHandler(BaseHandler):
             original_format = os.path.splitext(webFname)[1].lower().lstrip('.')
 
         response = {"error": False, "message": "file sent to printer"}
-        if total_images > 0 or total_pages > 0 or original_format or normalized_pages:
+        if total_images > 0 or total_pages > 0 or original_format or normalized_pages or double_sided is not None:
             response["details"] = {}
             if total_images > 0:
                 response["details"]["total_images"] = total_images
@@ -789,6 +799,7 @@ class UploadHandler(BaseHandler):
                 response["details"]["total_pages"] = total_pages
             if normalized_pages:
                 response["details"]["page_ranges"] = normalized_pages
+            response["details"]["double_sided"] = double_sided
 
         self.write(response)
 

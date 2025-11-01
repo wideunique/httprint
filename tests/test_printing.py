@@ -55,3 +55,40 @@ def test_print_file_includes_page_ranges(tmp_path):
     assert '-o' in captured['cmd']
     assert 'page-ranges=2-3' in captured['cmd']
     assert captured['cmd'][-1] == str(pdf_path)
+
+
+def test_print_file_respects_double_sided_flag(tmp_path):
+    pdf_path = tmp_path / "5678-20240101000000.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+
+    cfg = configparser.ConfigParser()
+    cfg['print'] = {
+        'name': 'sample.pdf',
+        'date': '20240101000000',
+        'copies': '1',
+        'sides': 'one-sided',
+        'media': 'A4',
+        'color': 'False',
+        'double_sided': 'false',
+    }
+    with open(pdf_path.with_suffix(pdf_path.suffix + '.info'), 'w') as fh:
+        cfg.write(fh)
+
+    captured = {}
+
+    handler = httprint.UploadHandler.__new__(httprint.UploadHandler)
+    handler.cfg = SimpleNamespace(
+        print_cmd='lp -n %(copies)s -o sides=%(sides)s -o media=%(media)s',
+        demo=False,
+        archive=False,
+        archive_dir=str(tmp_path),
+    )
+
+    def fake_run(cmd, fname, callback=None):
+        captured['cmd'] = cmd
+
+    handler.run_subprocess = fake_run
+
+    handler.print_file(str(pdf_path))
+
+    assert any('sides=one-sided' in part for part in captured['cmd'])
