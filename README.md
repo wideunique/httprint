@@ -59,6 +59,14 @@ See `config.yaml` for the complete list of switches and their defaults.
 
 Once a document is queued, it can be made persistent creating an empty file *code-docname.pdf.keep* in the *queue* directory.
 
+### Partial printing
+
+Uploads (including the web UI) may specify an optional `pages` field using a
+comma-separated list of page numbers and ranges (for example `1-3,5`). The value
+gets validated against the PDF's total page count and, when present, HTTPrint
+invokes the underlying print command with `-o page-ranges=...`. Leaving it blank
+prints the entire document.
+
 ### Running with systemd
 
 1. Create a dedicated user and deployment directory:

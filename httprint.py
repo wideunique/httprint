@@ -148,6 +148,43 @@ def load_config(path=None):
 
     return SimpleNamespace(**config)
 
+def normalize_page_ranges(page_spec, total_pages):
+    """Validate and normalize a page specification string."""
+    if page_spec is None or str(page_spec).strip() == '':
+        return None
+    if total_pages <= 0:
+        raise ValueError('unknown document page count')
+    parts = []
+    for raw_part in str(page_spec).split(','):
+        part = raw_part.strip()
+        if not part:
+            raise ValueError('invalid page specification format')
+        if '-' in part:
+            start_text, end_text = part.split('-', 1)
+            start_text = start_text.strip()
+            end_text = end_text.strip()
+            if not start_text.isdigit() or not end_text.isdigit():
+                raise ValueError('page ranges must be numeric')
+            start = int(start_text)
+            end = int(end_text)
+            if start < 1 or end < 1:
+                raise ValueError('page numbers must be >= 1')
+            if start > end:
+                raise ValueError('range start cannot exceed end')
+            if end > total_pages:
+                raise ValueError('page range exceeds document length')
+            parts.append(f"{start}-{end}")
+        else:
+            if not part.isdigit():
+                raise ValueError('page numbers must be numeric')
+            page = int(part)
+            if page < 1:
+                raise ValueError('page numbers must be >= 1')
+            if page > total_pages:
+                raise ValueError('page number out of bounds')
+            parts.append(str(page))
+    return ','.join(parts)
+
 re_pages = re.compile(r'^Pages:\s+(\d+)$', re.M | re.I)
 
 
@@ -308,7 +345,7 @@ class BaseHandler(tornado.web.RequestHandler):
         t = threading.Thread(target=self._run, args=(cmd, fname, callback), daemon=True)
         t.start()
 
-    def print_file(self, fname):
+    def print_file(self, fname, page_ranges=None):
         copies = 1
         sides = "two-sided-long-edge"
         media = "A4"
@@ -323,7 +360,10 @@ class BaseHandler(tornado.web.RequestHandler):
         media = printconf.get('media')
 
         print_cmd = self.cfg.print_cmd.split(' ')
-        cmd = [x % {'copies': copies, 'sides': sides, 'media': media} for x in print_cmd] + [fname]
+        cmd = [x % {'copies': copies, 'sides': sides, 'media': media} for x in print_cmd]
+        if page_ranges:
+            cmd.extend(['-o', f'page-ranges={page_ranges}'])
+        cmd.append(fname)
         print (cmd)
 
         # Demo mode: simulate printing without calling real printer
@@ -336,6 +376,8 @@ class BaseHandler(tornado.web.RequestHandler):
             logger.info("Copies: %d", copies)
             logger.info("Sides: %s", sides)
             logger.info("Media: %s", media)
+            if page_ranges:
+                logger.info("Page ranges: %s", page_ranges)
             logger.info("Simulated job ID: %s", simulated_job_id)
             # Still perform archiving if enabled
             # Create a mock process object for _archive callback
@@ -508,6 +550,10 @@ class UploadHandler(BaseHandler):
             self.build_error('you have asked too many copies')
             return
 
+        page_spec = self.get_argument('pages', default=None)
+        if page_spec is not None:
+            page_spec = page_spec.strip() or None
+
         # Get all uploaded files
         uploaded_files = self.request.files['file']
 
@@ -654,11 +700,8 @@ class UploadHandler(BaseHandler):
         printconf['sides'] = '%s' % sides
         printconf['media'] = '%s' % media
         printconf['color'] = '%s' % color
-        try:
-            with open(pname + '.info', 'w') as configfile:
-                 config.write(configfile)
-        except Exception:
-            pass
+        if page_spec:
+            printconf['page_ranges'] = page_spec
 
         failure = False
         if self.cfg.check_pdf_pages or self.cfg.pdf_only:
@@ -699,8 +742,33 @@ class UploadHandler(BaseHandler):
         except Exception:
             pass
 
+        normalized_pages = None
+        if page_spec is not None:
+            try:
+                normalized_pages = normalize_page_ranges(page_spec, total_pages)
+            except ValueError as exc:
+                self.build_error(str(exc))
+                for fn in glob.glob(pname + '*'):
+                    try:
+                        os.unlink(fn)
+                    except Exception:
+                        pass
+                return
+
+        if total_pages > 0:
+            printconf['total_pages'] = '%d' % total_pages
+        if normalized_pages:
+            printconf['page_ranges'] = normalized_pages
+        else:
+            printconf.pop('page_ranges', None)
+        try:
+            with open(pname + '.info', 'w') as configfile:
+                config.write(configfile)
+        except Exception:
+            pass
+
         # Upload and print directly
-        self.print_file(pname)
+        self.print_file(pname, page_ranges=normalized_pages)
 
         # Build success response with details
         total_images = len(uploaded_files) if all_images else 0
@@ -711,7 +779,7 @@ class UploadHandler(BaseHandler):
             original_format = os.path.splitext(webFname)[1].lower().lstrip('.')
 
         response = {"error": False, "message": "file sent to printer"}
-        if total_images > 0 or total_pages > 0 or original_format:
+        if total_images > 0 or total_pages > 0 or original_format or normalized_pages:
             response["details"] = {}
             if total_images > 0:
                 response["details"]["total_images"] = total_images
@@ -719,6 +787,8 @@ class UploadHandler(BaseHandler):
                 response["details"]["original_format"] = original_format
             if total_pages > 0:
                 response["details"]["total_pages"] = total_pages
+            if normalized_pages:
+                response["details"]["page_ranges"] = normalized_pages
 
         self.write(response)
 

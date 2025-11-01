@@ -54,6 +54,8 @@
             progressBar: document.getElementById('progress-bar'),
             copiesGroup: document.getElementById('copies-group'),
             copiesInput: document.getElementById('copies'),
+            pagesGroup: document.getElementById('pages-group'),
+            pagesInput: document.getElementById('pages'),
             actionButtons: document.getElementById('action-buttons'),
             printBtn: document.getElementById('print-btn'),
             printBtnText: document.getElementById('print-btn-text'),
@@ -194,6 +196,7 @@
             elements.imagePreviewGrid.style.display = 'none';
             elements.fileInfoDisplay.style.display = 'none';
             elements.copiesGroup.style.display = 'none';
+            elements.pagesGroup.style.display = 'none';
             elements.actionButtons.style.display = 'none';
             elements.printBtn.disabled = true;
             return;
@@ -217,6 +220,7 @@
 
         // Show copies and action buttons
         elements.copiesGroup.style.display = 'block';
+        elements.pagesGroup.style.display = 'block';
         elements.actionButtons.style.display = 'flex';
         elements.printBtn.disabled = false;
     }
@@ -323,12 +327,20 @@
     function clearFiles() {
         state.files = [];
         elements.fileInput.value = '';
+        elements.pagesInput.value = '';
         updateUI();
     }
 
     // Upload files to server
     function uploadFiles() {
         if (state.isUploading || state.files.length === 0) {
+            return;
+        }
+
+        const pages = elements.pagesInput.value.trim();
+        if (pages && !/^[0-9,\-\s]+$/.test(pages)) {
+            showToast('页码格式错误，请使用数字、逗号和连字符', 'error');
+            elements.pagesInput.focus();
             return;
         }
 
@@ -353,6 +365,9 @@
             formData.append('file', file);
         });
         formData.append('copies', copies);
+        if (pages) {
+            formData.append('pages', pages);
+        }
 
         // Upload using XMLHttpRequest for progress tracking
         const xhr = new XMLHttpRequest();
@@ -415,6 +430,9 @@
             if (response.details.total_pages) {
                 details.push(`总页数: ${response.details.total_pages}`);
             }
+            if (response.details.page_ranges) {
+                details.push(`打印页码: ${response.details.page_ranges}`);
+            }
 
             if (details.length > 0) {
                 message += '<br><small>' + details.join(' | ') + '</small>';
@@ -426,6 +444,7 @@
         // Reset UI
         clearFiles();
         elements.copiesInput.value = 1;
+        elements.pagesInput.value = '';
         elements.printBtnText.style.display = 'inline';
         elements.printSpinner.style.display = 'none';
         elements.clearBtn.disabled = false;
