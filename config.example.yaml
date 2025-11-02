@@ -8,13 +8,11 @@ archive: true
 archive_dir: archive
 
 # Printing behaviour
-print_with_code: true
 pdf_only: true
 check_pdf_pages: true
 print_cmd: "lp -n %(copies)s -o sides=%(sides)s -o media=%(media)s"
 
 # Job metadata
-code_digits: 4
 max_pages: 10
 
 # Runtime toggles

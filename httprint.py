@@ -19,12 +19,12 @@ import os
 import re
 import time
 import glob
-import random
 import shutil
 import logging
 import subprocess
 import multiprocessing as mp
 import threading
+import uuid
 from types import SimpleNamespace
 
 import yaml
@@ -76,9 +76,7 @@ ARCHIVE = True
 ARCHIVE_DIR = 'archive'
 PRINT_CMD = 'lp -n %(copies)s -o sides=%(sides)s -o media=%(media)s'
 
-CODE_DIGITS = 4
 MAX_PAGES = 10
-PRINT_WITH_CODE = True
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -92,12 +90,10 @@ DEFAULT_CONFIG = {
     'address': '',
     'ssl_cert': os.path.join(BASE_DIR, 'ssl', 'httprint_cert.pem'),
     'ssl_key': os.path.join(BASE_DIR, 'ssl', 'httprint_key.pem'),
-    'code_digits': CODE_DIGITS,
     'max_pages': MAX_PAGES,
     'queue_dir': QUEUE_DIR,
     'archive': ARCHIVE,
     'archive_dir': ARCHIVE_DIR,
-    'print_with_code': PRINT_WITH_CODE,
     'pdf_only': True,
     'check_pdf_pages': True,
     'print_cmd': PRINT_CMD,
@@ -303,49 +299,8 @@ class BaseHandler(tornado.web.RequestHandler):
         else:
             self.run_subprocess(cmd, fname, self._archive)
 
-class QueryHandler(BaseHandler):
-    """File print handler."""
-    @gen.coroutine
-    def post(self, code=None, ppd=None):
-        if not code:
-            self.build_error("empty code")
-            return
-        files = [x for x in sorted(glob.glob(self.cfg.queue_dir + '/%s-*' % code))
-                 if not x.endswith('.info') and not x.endswith('.keep')]
-        if not files:
-            self.build_error("no matching files")
-            return
-        
-        #questa e' una prova per leggere il file di configurazione
-        #e farsi mandare il file da stampare
-        config = configparser.ConfigParser()
-        config.read(files[0] + '.info')
-        printconf = config['print']
-        self.build_success(printconf['name'])
-
-
-
 class UploadHandler(BaseHandler):
     """File upload handler."""
-    def generateCode(self):
-        filler = '%0' + str(self.cfg.code_digits) + 'd'
-        existing = set()
-        re_code = re.compile(r'(\d{' + str(self.cfg.code_digits) + r'})-.*')
-        for fname in glob.glob(self.cfg.queue_dir + '/*'):
-            fname = os.path.basename(fname)
-            match = re_code.match(fname)
-            if not match:
-                continue
-            fcode = match.group(1)
-            existing.add(fcode)
-        code = None
-        for i in range(10**self.cfg.code_digits):
-            intCode = random.randint(0, (10**self.cfg.code_digits)-1)
-            code = filler % intCode
-            if code not in existing:
-                break
-        return code
-
     def is_image_file(self, filename):
         """Check if file is an image based on extension."""
         if not IMAGE_SUPPORT:
@@ -513,7 +468,7 @@ class UploadHandler(BaseHandler):
         if not os.path.isdir(self.cfg.queue_dir):
             os.makedirs(self.cfg.queue_dir)
         now = time.strftime('%Y%m%d%H%M%S')
-        code = self.generateCode()
+        unique_id = str(uuid.uuid4())[:8]  # Use first 8 chars of UUID for shorter filenames
 
         # Handle multiple images - convert to PDF
         if all_images and len(uploaded_files) > 1:
@@ -521,13 +476,13 @@ class UploadHandler(BaseHandler):
             temp_image_files = []
             try:
                 for idx, fileinfo in enumerate(uploaded_files):
-                    temp_fname = os.path.join(self.cfg.queue_dir, f'temp_{code}_{idx}_{fileinfo["filename"]}')
+                    temp_fname = os.path.join(self.cfg.queue_dir, f'temp_{unique_id}_{idx}_{fileinfo["filename"]}')
                     with open(temp_fname, 'wb') as fd:
                         fd.write(fileinfo['body'])
                     temp_image_files.append(temp_fname)
 
                 # Convert images to PDF
-                fname = '%s-%s.pdf' % (code, now)
+                fname = f'{now}_{unique_id}.pdf'
                 pname = os.path.join(self.cfg.queue_dir, fname)
                 if not self.convert_images_to_pdf(temp_image_files, pname):
                     self.build_error("failed to convert images to PDF")
@@ -546,12 +501,12 @@ class UploadHandler(BaseHandler):
         # Handle single image - convert to PDF
         elif all_images and len(uploaded_files) == 1:
             fileinfo = uploaded_files[0]
-            temp_fname = os.path.join(self.cfg.queue_dir, f'temp_{code}_{fileinfo["filename"]}')
+            temp_fname = os.path.join(self.cfg.queue_dir, f'temp_{unique_id}_{fileinfo["filename"]}')
             try:
                 with open(temp_fname, 'wb') as fd:
                     fd.write(fileinfo['body'])
 
-                fname = '%s-%s.pdf' % (code, now)
+                fname = f'{now}_{unique_id}.pdf'
                 pname = os.path.join(self.cfg.queue_dir, fname)
                 if not self.convert_images_to_pdf([temp_fname], pname):
                     self.build_error("failed to convert image to PDF")
@@ -572,13 +527,13 @@ class UploadHandler(BaseHandler):
             original_ext = os.path.splitext(webFname)[1].lower()
 
             # Save Office file temporarily
-            temp_office_fname = os.path.join(self.cfg.queue_dir, f'temp_{code}_{fileinfo["filename"]}')
+            temp_office_fname = os.path.join(self.cfg.queue_dir, f'temp_{unique_id}_{fileinfo["filename"]}')
             try:
                 with open(temp_office_fname, 'wb') as fd:
                     fd.write(fileinfo['body'])
 
                 # Convert to PDF
-                fname = '%s-%s.pdf' % (code, now)
+                fname = f'{now}_{unique_id}.pdf'
                 pname = os.path.join(self.cfg.queue_dir, fname)
 
                 success, error_msg = self.convert_office_to_pdf(temp_office_fname, pname)
@@ -603,7 +558,7 @@ class UploadHandler(BaseHandler):
                 extension = os.path.splitext(webFname)[1]
             except Exception:
                 pass
-            fname = '%s-%s%s' % (code, now, extension)
+            fname = f'{now}_{unique_id}{extension}'
             pname = os.path.join(self.cfg.queue_dir, fname)
             try:
                 with open(pname, 'wb') as fd:
@@ -750,15 +705,9 @@ def serve(config_path=None):
     init_params = dict(listen_port=cfg.port, logger=logger, ssl_options=ssl_options, cfg=cfg)
 
     _upload_path = r'upload/?'
-    _query_path = r'query/(?P<code>\d+)'
-    _query_path_ppd = r'query/(?P<code>\d+)/(?P<ppd>\d+)'
     application = tornado.web.Application([
             (r'/api/%s' % _upload_path, UploadHandler, init_params),
             (r'/api/v%s/%s' % (API_VERSION, _upload_path), UploadHandler, init_params),
-            (r'/api/%s' % _query_path, QueryHandler, init_params),
-            (r'/api/v%s/%s' % (API_VERSION, _query_path), QueryHandler, init_params),
-            (r'/api/%s' % _query_path_ppd, QueryHandler, init_params),
-            (r'/api/v%s/%s' % (API_VERSION, _query_path_ppd), QueryHandler, init_params),
             (r'/?(.*)', TemplateHandler, init_params),
         ],
         static_path=os.path.join(os.path.dirname(__file__), 'dist/static'),
