@@ -25,8 +25,6 @@ import logging
 import subprocess
 import multiprocessing as mp
 import threading
-import base64
-from ipaddress import ip_address, ip_network
 from types import SimpleNamespace
 
 import yaml
@@ -105,9 +103,6 @@ DEFAULT_CONFIG = {
     'print_cmd': PRINT_CMD,
     'debug': False,
     'demo': False,
-    'ip_whitelist': ['127.0.0.1/32', '::1/128'],
-    'auth_username': '',
-    'auth_password': '',
 }
 
 
@@ -130,21 +125,6 @@ def load_config(path=None):
     for key, value in data.items():
         normalized_key = key.replace('-', '_')
         config[normalized_key] = value
-
-    whitelist_entries = config.get('ip_whitelist') or []
-    if isinstance(whitelist_entries, str):
-        whitelist_entries = [entry.strip() for entry in whitelist_entries.split(',')]
-    config['ip_whitelist'] = [entry for entry in whitelist_entries if entry]
-
-    networks = []
-    for entry in config['ip_whitelist']:
-        try:
-            networks.append(ip_network(entry, strict=False))
-        except ValueError:
-            logger.warning('Invalid IP whitelist entry ignored: %s', entry)
-    config['ip_whitelist_networks'] = networks
-    config['auth_username'] = (config.get('auth_username') or '').strip()
-    config['auth_password'] = (config.get('auth_password') or '').strip()
 
     return SimpleNamespace(**config)
 
@@ -251,70 +231,6 @@ class BaseHandler(tornado.web.RequestHandler):
         """
         self.set_status(status)
         self.write({'error': False, 'message': message})
-
-    # --- Access control helpers -------------------------------------------------
-
-    def prepare(self):
-        """Ensure the request satisfies IP whitelist or Basic auth requirements."""
-        super().prepare()
-        self._enforce_access_control()
-
-    def _enforce_access_control(self):
-        client_ip = self._get_client_ip()
-        if self._is_ip_whitelisted(client_ip):
-            return
-        username = getattr(self.cfg, 'auth_username', '') or ''
-        password = getattr(self.cfg, 'auth_password', '') or ''
-        if not username or not password:
-            self._auth_failed()
-        header = self.request.headers.get('Authorization', '')
-        if not header.startswith('Basic '):
-            self._auth_failed()
-        encoded = header.split(' ', 1)[1].strip()
-        try:
-            decoded = base64.b64decode(encoded).decode('utf-8')
-        except Exception:
-            self._auth_failed()
-            return
-        if ':' not in decoded:
-            self._auth_failed()
-            return
-        user, pwd = decoded.split(':', 1)
-        if not (user == username and pwd == password):
-            self._auth_failed()
-
-    def _auth_failed(self):
-        """Abort the request with a 401 response."""
-        self.set_header('WWW-Authenticate', 'Basic realm="httprint"')
-        self.build_error('authentication required', status=401)
-        raise tornado.web.Finish()
-
-    def _get_client_ip(self):
-        """Return the best-effort client IP."""
-        headers = self.request.headers
-        forwarded_for = headers.get('X-Forwarded-For')
-        if forwarded_for:
-            candidate = forwarded_for.split(',')[0].strip()
-            if candidate:
-                return candidate
-        real_ip = headers.get('X-Real-IP')
-        if real_ip:
-            return real_ip.strip()
-        return self.request.remote_ip
-
-    def _is_ip_whitelisted(self, ip_text):
-        """Check whether the given IP string is contained in the configured whitelist."""
-        networks = getattr(self.cfg, 'ip_whitelist_networks', []) or []
-        if not ip_text or not networks:
-            return False
-        try:
-            candidate = ip_address(ip_text)
-        except ValueError:
-            return False
-        for network in networks:
-            if candidate in network:
-                return True
-        return False
 
     def _run(self, cmd, fname, callback=None):
         p = subprocess.Popen(cmd, close_fds=True)

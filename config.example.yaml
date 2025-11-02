@@ -20,10 +20,3 @@ max_pages: 10
 # Runtime toggles
 demo: false
 debug: false
-
-# Network access control
-ip_whitelist:
-  - 127.0.0.1/32
-  - ::1/128
-auth_username: "printer"
-auth_password: "change-me"
