@@ -127,6 +127,17 @@
       color: rgba(255, 255, 255, 0.8);
     }
 
+    .file-type-btn .hint-text {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 3px;
+      font-style: italic;
+    }
+
+    .file-type-btn.active .hint-text {
+      color: rgba(255, 255, 255, 0.7);
+    }
+
     /* Upload area */
     .upload-area {
       border: 2px dashed var(--border-color);
@@ -457,7 +468,7 @@
       <!-- Header -->
       <div class="header">
         <h1>📄 HTTPrint</h1>
-        <p>轻松上传并打印您的文件 - 支持 PDF、图片和 Office 文档</p>
+        <p>轻松上传并打印您的文件 - 支持图片和文档（PDF、Office）</p>
       </div>
 
       <!-- Main card -->
@@ -468,37 +479,34 @@
         <div class="card-body">
           <!-- File type selector -->
           <div class="file-type-selector">
-            <div class="file-type-btn" data-type="pdf">
-              <div class="icon">📄</div>
-              <div class="label">PDF 文件</div>
-              <div class="formats">.pdf</div>
-            </div>
             <div class="file-type-btn" data-type="images">
               <div class="icon">🖼️</div>
               <div class="label">图片文件</div>
               <div class="formats">.jpg .png .gif .bmp .tiff</div>
+              <div class="hint-text">可上传多张，自动合并为 PDF</div>
             </div>
-            <div class="file-type-btn" data-type="office">
-              <div class="icon">📊</div>
-              <div class="label">Office 文档</div>
-              <div class="formats">.doc .docx .xls .xlsx .ppt .pptx</div>
+            <div class="file-type-btn" data-type="documents">
+              <div class="icon">📄</div>
+              <div class="label">文档文件</div>
+              <div class="formats">PDF / Word / Excel / PowerPoint</div>
+              <div class="hint-text">只能上传一个文件</div>
             </div>
           </div>
 
           <!-- Info alert -->
           <div class="alert-custom alert-info" id="info-alert">
-            <strong>提示：</strong>请先选择文件类型，然后上传文件。
+            <strong>提示：</strong>请先选择文件类型（图片或文档），然后上传文件。
           </div>
 
           <!-- Upload area -->
           <div class="upload-area" id="upload-area" style="display: none;">
             <div class="icon">☁️</div>
             <div class="text">点击或拖拽文件到此处上传</div>
-            <div class="hint" id="upload-hint">支持的格式：PDF</div>
+            <div class="hint" id="upload-hint">支持的格式</div>
           </div>
 
           <!-- Hidden file input -->
-          <input type="file" id="file-input" accept=".pdf">
+          <input type="file" id="file-input" accept="*">
 
           <!-- Image preview grid (for multiple images) -->
           <div class="image-preview-grid" id="image-preview-grid" style="display: none;"></div>
@@ -567,23 +575,45 @@
         </div>
         <div class="card-body">
           <ol>
-            <li><strong>选择文件类型</strong>：点击上方的文件类型按钮（PDF、图片或 Office 文档）</li>
-            <li><strong>上传文件</strong>：
+            <li><strong>选择文件类型</strong>：点击上方的文件类型按钮
               <ul>
-                <li>PDF 和 Office 文档：上传单个文件</li>
-                <li>图片：可以同时上传多张图片，支持拖拽调整顺序</li>
+                <li><strong>图片文件</strong>：可上传多张图片（JPG、PNG、GIF、BMP、TIFF），自动合并为一个 PDF</li>
+                <li><strong>文档文件</strong>：上传单个文档（PDF、Word、Excel、PowerPoint）</li>
               </ul>
             </li>
-            <li><strong>设置份数</strong>：选择需要打印的份数（1-10 份）</li>
+            <li><strong>上传文件</strong>：
+              <ul>
+                <li>点击上传区域选择文件，或直接拖拽文件到上传区域</li>
+                <li>图片支持拖拽调整顺序（影响打印顺序）</li>
+              </ul>
+            </li>
+            <li><strong>设置选项</strong>：
+              <ul>
+                <li>打印份数：1-10 份</li>
+                <li>页码范围：可选，例如 1-3,5（留空打印全部）</li>
+                <li>双面打印：默认开启</li>
+              </ul>
+            </li>
             <li><strong>开始打印</strong>：点击"开始打印"按钮，文件将自动发送到打印机</li>
           </ol>
           <div class="alert-custom alert-warning show">
-            <strong>注意：</strong>
+            <strong>注意事项：</strong>
             <ul class="mb-0">
-              <li>最大页数限制：10 页</li>
-              <li>不支持混合上传不同类型的文件</li>
-              <li>Office 文档需要服务器安装 LibreOffice</li>
-              <li>图片会自动转换为 PDF 格式打印</li>
+              <li><strong>文件限制</strong>：最大页数 50 页</li>
+              <li><strong>文件类型</strong>：不能混合上传图片和文档</li>
+              <li><strong>图片处理</strong>：多张图片会自动合并为一个 PDF 文件</li>
+              <li><strong>文档处理</strong>：
+                <ul>
+                  <li>PDF 文件直接打印</li>
+                  <li>Office 文档（Word/Excel/PowerPoint）会自动转换为 PDF（需要服务器安装 LibreOffice）</li>
+                </ul>
+              </li>
+              <li><strong>上传数量</strong>：
+                <ul>
+                  <li>图片：可上传多张</li>
+                  <li>文档：只能上传一个</li>
+                </ul>
+              </li>
             </ul>
           </div>
         </div>

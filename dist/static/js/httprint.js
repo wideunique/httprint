@@ -1,5 +1,5 @@
 // HTTPrint - Modern file upload interface
-// Supports PDF, images, and Office documents
+// Supports images and documents (PDF, Office)
 
 (function() {
     'use strict';
@@ -13,23 +13,17 @@
 
     // File type configurations
     const fileTypes = {
-        pdf: {
-            accept: '.pdf',
-            multiple: false,
-            icon: '📄',
-            hint: '支持的格式：PDF'
-        },
         images: {
             accept: '.jpg,.jpeg,.png,.gif,.bmp,.tiff',
             multiple: true,
             icon: '🖼️',
-            hint: '支持的格式：JPG, PNG, GIF, BMP, TIFF（可多选）'
+            hint: '支持的格式：JPG, PNG, GIF, BMP, TIFF（可上传多张，自动合并为 PDF）'
         },
-        office: {
-            accept: '.doc,.docx,.xls,.xlsx,.ppt,.pptx',
+        documents: {
+            accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx',
             multiple: false,
-            icon: '📊',
-            hint: '支持的格式：Word, Excel, PowerPoint'
+            icon: '📄',
+            hint: '支持的格式：PDF, Word, Excel, PowerPoint（只能上传一个文件）'
         }
     };
 

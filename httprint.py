@@ -78,8 +78,17 @@ PRINT_CMD = 'lp -n %(copies)s -o sides=%(sides)s -o media=%(media)s'
 
 MAX_PAGES = 10
 
+# Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# Add console handler if not already present
+if not logger.handlers:
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE_ENV = 'HTTPRINT_CONFIG'
@@ -205,6 +214,27 @@ class BaseHandler(tornado.web.RequestHandler):
         """Add every passed (key, value) as attributes of the instance."""
         for key, value in kwargs.items():
             setattr(self, key, value)
+
+    def prepare(self):
+        """Called before each request. Log request details if debug mode is enabled."""
+        if hasattr(self, 'cfg') and self.cfg.debug:
+            logger.debug("=" * 80)
+            logger.debug(f"[REQUEST] {self.request.method} {self.request.uri}")
+            logger.debug(f"[CLIENT] {self.request.remote_ip}")
+            logger.debug(f"[HEADERS] {dict(self.request.headers)}")
+            if self.request.body:
+                # Only log body for non-file uploads (to avoid logging binary data)
+                content_type = self.request.headers.get('Content-Type', '')
+                if 'multipart/form-data' not in content_type:
+                    logger.debug(f"[BODY] {self.request.body[:500]}")  # First 500 bytes
+                else:
+                    logger.debug(f"[BODY] <multipart/form-data - {len(self.request.body)} bytes>")
+
+    def on_finish(self):
+        """Called after request is finished. Log response details if debug mode is enabled."""
+        if hasattr(self, 'cfg') and self.cfg.debug:
+            logger.debug(f"[RESPONSE] Status: {self.get_status()}")
+            logger.debug("=" * 80)
 
     def build_error(self, message='', status=400):
         """Build and write an error message.
@@ -344,6 +374,10 @@ class UploadHandler(BaseHandler):
         ext = os.path.splitext(filename.lower())[1]
         return ext in office_extensions
 
+    def is_document_file(self, filename):
+        """Check if file is a document (PDF or Office) based on extension."""
+        return filename.lower().endswith('.pdf') or self.is_office_file(filename)
+
     def convert_office_to_pdf(self, office_file, output_pdf, timeout=60):
         """Convert Office document to PDF using LibreOffice."""
         if not OFFICE_SUPPORT:
@@ -439,29 +473,24 @@ class UploadHandler(BaseHandler):
         # Get all uploaded files
         uploaded_files = self.request.files['file']
 
-        # Check if all files are images, PDFs, or Office documents
+        # Check if all files are images or documents (PDF/Office)
         all_images = all(self.is_image_file(f['filename']) for f in uploaded_files)
-        all_pdfs = all(f['filename'].lower().endswith('.pdf') for f in uploaded_files)
-        all_office = all(self.is_office_file(f['filename']) for f in uploaded_files)
+        all_documents = all(self.is_document_file(f['filename']) for f in uploaded_files)
 
         # Count file types
         has_images = any(self.is_image_file(f['filename']) for f in uploaded_files)
-        has_pdfs = any(f['filename'].lower().endswith('.pdf') for f in uploaded_files)
-        has_office = any(self.is_office_file(f['filename']) for f in uploaded_files)
+        has_documents = any(self.is_document_file(f['filename']) for f in uploaded_files)
 
         # Check for mixed types or unsupported files
-        if not all_images and not all_pdfs and not all_office:
+        if not all_images and not all_documents:
             # Check for mixed types
-            type_count = sum([has_images, has_pdfs, has_office])
-            if type_count > 1:
-                self.build_error("cannot mix different file types in one upload")
+            if has_images and has_documents:
+                self.build_error("cannot mix images and documents in one upload")
                 return
 
             # Check for unsupported file types
             for f in uploaded_files:
-                if not self.is_image_file(f['filename']) and \
-                   not f['filename'].lower().endswith('.pdf') and \
-                   not self.is_office_file(f['filename']):
+                if not self.is_image_file(f['filename']) and not self.is_document_file(f['filename']):
                     self.build_error(f"unsupported file type: {f['filename']}")
                     return
 
@@ -470,106 +499,109 @@ class UploadHandler(BaseHandler):
         now = time.strftime('%Y%m%d%H%M%S')
         unique_id = str(uuid.uuid4())[:8]  # Use first 8 chars of UUID for shorter filenames
 
-        # Handle multiple images - convert to PDF
-        if all_images and len(uploaded_files) > 1:
-            # Save images temporarily
-            temp_image_files = []
-            try:
-                for idx, fileinfo in enumerate(uploaded_files):
-                    temp_fname = os.path.join(self.cfg.queue_dir, f'temp_{unique_id}_{idx}_{fileinfo["filename"]}')
+        # Branch 1: Handle images - convert to PDF
+        if all_images:
+            if len(uploaded_files) > 1:
+                # Multiple images - combine into single PDF
+                temp_image_files = []
+                try:
+                    for idx, fileinfo in enumerate(uploaded_files):
+                        temp_fname = os.path.join(self.cfg.queue_dir, f'temp_{unique_id}_{idx}_{fileinfo["filename"]}')
+                        with open(temp_fname, 'wb') as fd:
+                            fd.write(fileinfo['body'])
+                        temp_image_files.append(temp_fname)
+
+                    # Convert images to PDF
+                    fname = f'{now}_{unique_id}.pdf'
+                    pname = os.path.join(self.cfg.queue_dir, fname)
+                    if not self.convert_images_to_pdf(temp_image_files, pname):
+                        self.build_error("failed to convert images to PDF")
+                        return
+
+                    webFname = f"{len(uploaded_files)} images combined"
+                    extension = '.pdf'
+                finally:
+                    # Clean up temporary image files
+                    for temp_file in temp_image_files:
+                        try:
+                            os.unlink(temp_file)
+                        except Exception:
+                            pass
+            else:
+                # Single image - convert to PDF
+                fileinfo = uploaded_files[0]
+                temp_fname = os.path.join(self.cfg.queue_dir, f'temp_{unique_id}_{fileinfo["filename"]}')
+                try:
                     with open(temp_fname, 'wb') as fd:
                         fd.write(fileinfo['body'])
-                    temp_image_files.append(temp_fname)
 
-                # Convert images to PDF
-                fname = f'{now}_{unique_id}.pdf'
-                pname = os.path.join(self.cfg.queue_dir, fname)
-                if not self.convert_images_to_pdf(temp_image_files, pname):
-                    self.build_error("failed to convert images to PDF")
-                    return
+                    fname = f'{now}_{unique_id}.pdf'
+                    pname = os.path.join(self.cfg.queue_dir, fname)
+                    if not self.convert_images_to_pdf([temp_fname], pname):
+                        self.build_error("failed to convert image to PDF")
+                        return
 
-                webFname = f"{len(uploaded_files)} images combined"
-                extension = '.pdf'
-            finally:
-                # Clean up temporary image files
-                for temp_file in temp_image_files:
+                    webFname = fileinfo['filename']
+                    extension = '.pdf'
+                finally:
                     try:
-                        os.unlink(temp_file)
+                        os.unlink(temp_fname)
                     except Exception:
                         pass
 
-        # Handle single image - convert to PDF
-        elif all_images and len(uploaded_files) == 1:
-            fileinfo = uploaded_files[0]
-            temp_fname = os.path.join(self.cfg.queue_dir, f'temp_{unique_id}_{fileinfo["filename"]}')
-            try:
-                with open(temp_fname, 'wb') as fd:
-                    fd.write(fileinfo['body'])
-
-                fname = f'{now}_{unique_id}.pdf'
-                pname = os.path.join(self.cfg.queue_dir, fname)
-                if not self.convert_images_to_pdf([temp_fname], pname):
-                    self.build_error("failed to convert image to PDF")
-                    return
-
-                webFname = fileinfo['filename']
-                extension = '.pdf'
-            finally:
-                try:
-                    os.unlink(temp_fname)
-                except Exception:
-                    pass
-
-        # Handle Office document - convert to PDF
-        elif all_office and len(uploaded_files) == 1:
-            fileinfo = uploaded_files[0]
-            webFname = fileinfo['filename']
-            original_ext = os.path.splitext(webFname)[1].lower()
-
-            # Save Office file temporarily
-            temp_office_fname = os.path.join(self.cfg.queue_dir, f'temp_{unique_id}_{fileinfo["filename"]}')
-            try:
-                with open(temp_office_fname, 'wb') as fd:
-                    fd.write(fileinfo['body'])
-
-                # Convert to PDF
-                fname = f'{now}_{unique_id}.pdf'
-                pname = os.path.join(self.cfg.queue_dir, fname)
-
-                success, error_msg = self.convert_office_to_pdf(temp_office_fname, pname)
-                if not success:
-                    self.build_error(f"failed to convert Office document to PDF: {error_msg}")
-                    return
-
-                extension = '.pdf'
-            finally:
-                # Clean up temporary Office file
-                try:
-                    os.unlink(temp_office_fname)
-                except Exception:
-                    pass
-
-        # Handle single PDF (original behavior)
-        elif len(uploaded_files) == 1:
-            fileinfo = uploaded_files[0]
-            webFname = fileinfo['filename']
-            extension = ''
-            try:
-                extension = os.path.splitext(webFname)[1]
-            except Exception:
-                pass
-            fname = f'{now}_{unique_id}{extension}'
-            pname = os.path.join(self.cfg.queue_dir, fname)
-            try:
-                with open(pname, 'wb') as fd:
-                    fd.write(fileinfo['body'])
-            except Exception as e:
-                self.build_error("error writing file %s: %s" % (pname, e))
+        # Branch 2: Handle documents (PDF or Office)
+        elif all_documents:
+            if len(uploaded_files) > 1:
+                # Multiple documents not supported
+                self.build_error("multiple document files not supported, please upload one document or multiple images")
                 return
 
-        # Handle multiple PDFs - not supported yet
+            fileinfo = uploaded_files[0]
+            webFname = fileinfo['filename']
+
+            # Check if it's an Office document that needs conversion
+            if self.is_office_file(webFname):
+                # Office document - convert to PDF
+                temp_office_fname = os.path.join(self.cfg.queue_dir, f'temp_{unique_id}_{fileinfo["filename"]}')
+                try:
+                    with open(temp_office_fname, 'wb') as fd:
+                        fd.write(fileinfo['body'])
+
+                    # Convert to PDF
+                    fname = f'{now}_{unique_id}.pdf'
+                    pname = os.path.join(self.cfg.queue_dir, fname)
+
+                    success, error_msg = self.convert_office_to_pdf(temp_office_fname, pname)
+                    if not success:
+                        self.build_error(f"failed to convert Office document to PDF: {error_msg}")
+                        return
+
+                    extension = '.pdf'
+                finally:
+                    # Clean up temporary Office file
+                    try:
+                        os.unlink(temp_office_fname)
+                    except Exception:
+                        pass
+            else:
+                # PDF file - use directly
+                extension = ''
+                try:
+                    extension = os.path.splitext(webFname)[1]
+                except Exception:
+                    pass
+                fname = f'{now}_{unique_id}{extension}'
+                pname = os.path.join(self.cfg.queue_dir, fname)
+                try:
+                    with open(pname, 'wb') as fd:
+                        fd.write(fileinfo['body'])
+                except Exception as e:
+                    self.build_error("error writing file %s: %s" % (pname, e))
+                    return
+
         else:
-            self.build_error("multiple PDF files not supported, please upload one PDF or multiple images")
+            # Should not reach here due to earlier validation
+            self.build_error("unsupported file type")
             return
 
         #questo l'ho aggiuto io. ho qualche dubbio su dove settare la variabile config
@@ -655,8 +687,8 @@ class UploadHandler(BaseHandler):
         total_images = len(uploaded_files) if all_images else 0
         original_format = None
 
-        # Determine original format for Office documents
-        if all_office:
+        # Determine original format for Office documents (non-PDF documents)
+        if all_documents and self.is_office_file(webFname):
             original_format = os.path.splitext(webFname)[1].lower().lstrip('.')
 
         response = {"error": False, "message": "file sent to printer"}
