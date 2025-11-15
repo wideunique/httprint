@@ -43,6 +43,16 @@ try:
 except ImportError:
     IMAGE_SUPPORT = False
 
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.pdfgen import canvas
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    TXT_SUPPORT = True
+except ImportError:
+    TXT_SUPPORT = False
+
 # Check for LibreOffice availability
 OFFICE_SUPPORT = False
 LIBREOFFICE_CMD = None
@@ -375,8 +385,8 @@ class UploadHandler(BaseHandler):
         return ext in office_extensions
 
     def is_document_file(self, filename):
-        """Check if file is a document (PDF or Office) based on extension."""
-        return filename.lower().endswith('.pdf') or self.is_office_file(filename)
+        """Check if file is a document (PDF, Office, or TXT) based on extension."""
+        return filename.lower().endswith('.pdf') or self.is_office_file(filename) or self.is_txt_file(filename)
 
     def convert_office_to_pdf(self, office_file, output_pdf, timeout=60):
         """Convert Office document to PDF using LibreOffice."""
@@ -431,6 +441,115 @@ class UploadHandler(BaseHandler):
             return False, f"conversion timeout after {timeout} seconds"
         except Exception as e:
             logger.error(f"Error converting Office document to PDF: {e}")
+            return False, str(e)
+
+    def is_txt_file(self, filename):
+        """Check if file is a TXT file based on extension."""
+        if not TXT_SUPPORT:
+            return False
+        return filename.lower().endswith('.txt')
+
+    def convert_txt_to_pdf(self, txt_file, output_pdf):
+        """Convert TXT file to PDF with proper Chinese font support and formatting."""
+        if not TXT_SUPPORT:
+            raise Exception("TXT support not available. Please install reportlab.")
+
+        try:
+            # Read the text file with UTF-8 encoding
+            with open(txt_file, 'r', encoding='utf-8', errors='ignore') as f:
+                text_content = f.read()
+
+            # Create PDF canvas
+            c = canvas.Canvas(output_pdf, pagesize=A4)
+            width, height = A4
+
+            # Try to register Chinese fonts (common system fonts)
+            font_name = 'Helvetica'  # Default fallback
+            font_size = 10
+
+            # Try to find and register a Chinese font
+            chinese_fonts = [
+                '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',  # WenQuanYi Micro Hei (Linux)
+                '/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf',  # Droid (Linux)
+                '/System/Library/Fonts/PingFang.ttc',  # PingFang (macOS)
+                '/System/Library/Fonts/STHeiti Light.ttc',  # STHeiti (macOS)
+                'C:\\Windows\\Fonts\\msyh.ttc',  # Microsoft YaHei (Windows)
+                'C:\\Windows\\Fonts\\simsun.ttc',  # SimSun (Windows)
+            ]
+
+            for font_path in chinese_fonts:
+                if os.path.exists(font_path):
+                    try:
+                        pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
+                        font_name = 'ChineseFont'
+                        logger.info(f"Using Chinese font: {font_path}")
+                        break
+                    except Exception as e:
+                        logger.warning(f"Failed to register font {font_path}: {e}")
+                        continue
+
+            # Set margins
+            left_margin = 20 * mm
+            right_margin = 20 * mm
+            top_margin = 20 * mm
+            bottom_margin = 20 * mm
+
+            # Calculate usable width and height
+            usable_width = width - left_margin - right_margin
+            usable_height = height - top_margin - bottom_margin
+
+            # Set font
+            c.setFont(font_name, font_size)
+
+            # Calculate line height
+            line_height = font_size * 1.2
+
+            # Split text into lines and wrap long lines
+            lines = []
+            for paragraph in text_content.split('\n'):
+                if not paragraph.strip():
+                    lines.append('')  # Empty line
+                    continue
+
+                # Wrap long lines
+                words = paragraph.split(' ')
+                current_line = ''
+
+                for word in words:
+                    test_line = current_line + (' ' if current_line else '') + word
+                    # Estimate width (rough approximation)
+                    if c.stringWidth(test_line, font_name, font_size) <= usable_width:
+                        current_line = test_line
+                    else:
+                        if current_line:
+                            lines.append(current_line)
+                        current_line = word
+
+                if current_line:
+                    lines.append(current_line)
+
+            # Draw text on pages
+            y_position = height - top_margin
+
+            for line in lines:
+                # Check if we need a new page
+                if y_position < bottom_margin:
+                    c.showPage()
+                    c.setFont(font_name, font_size)
+                    y_position = height - top_margin
+
+                # Draw the line
+                c.drawString(left_margin, y_position, line)
+                y_position -= line_height
+
+            # Save the PDF
+            c.save()
+
+            logger.info(f"Successfully converted TXT to PDF: {output_pdf}")
+            return True, None
+
+        except Exception as e:
+            logger.error(f"Error converting TXT to PDF: {e}")
             return False, str(e)
 
     @gen.coroutine
@@ -583,6 +702,29 @@ class UploadHandler(BaseHandler):
                         os.unlink(temp_office_fname)
                     except Exception:
                         pass
+            elif self.is_txt_file(webFname):
+                # TXT file - convert to PDF
+                temp_txt_fname = os.path.join(self.cfg.queue_dir, f'temp_{unique_id}_{fileinfo["filename"]}')
+                try:
+                    with open(temp_txt_fname, 'wb') as fd:
+                        fd.write(fileinfo['body'])
+
+                    # Convert to PDF
+                    fname = f'{now}_{unique_id}.pdf'
+                    pname = os.path.join(self.cfg.queue_dir, fname)
+
+                    success, error_msg = self.convert_txt_to_pdf(temp_txt_fname, pname)
+                    if not success:
+                        self.build_error(f"failed to convert TXT to PDF: {error_msg}")
+                        return
+
+                    extension = '.pdf'
+                finally:
+                    # Clean up temporary TXT file
+                    try:
+                        os.unlink(temp_txt_fname)
+                    except Exception:
+                        pass
             else:
                 # PDF file - use directly
                 extension = ''
@@ -687,8 +829,8 @@ class UploadHandler(BaseHandler):
         total_images = len(uploaded_files) if all_images else 0
         original_format = None
 
-        # Determine original format for Office documents (non-PDF documents)
-        if all_documents and self.is_office_file(webFname):
+        # Determine original format for Office documents and TXT files (non-PDF documents)
+        if all_documents and (self.is_office_file(webFname) or self.is_txt_file(webFname)):
             original_format = os.path.splitext(webFname)[1].lower().lstrip('.')
 
         response = {"error": False, "message": "file sent to printer"}

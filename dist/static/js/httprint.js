@@ -20,10 +20,10 @@
             hint: '支持的格式：JPG, PNG, GIF, BMP, TIFF（可上传多张，自动合并为 PDF）'
         },
         documents: {
-            accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx',
+            accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt',
             multiple: false,
             icon: '📄',
-            hint: '支持的格式：PDF, Word, Excel, PowerPoint（只能上传一个文件）'
+            hint: '支持的格式：PDF, Word, Excel, PowerPoint, TXT（只能上传一个文件）'
         }
     };
 
