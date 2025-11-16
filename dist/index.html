@@ -33,26 +33,26 @@
 
     .main-container {
       flex: 1;
-      padding: 20px 15px;
+      padding: 15px 10px;
     }
 
     .header {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
-      padding: 30px 20px;
+      padding: 20px 15px;
       border-radius: 10px;
-      margin-bottom: 30px;
+      margin-bottom: 20px;
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
 
     .header h1 {
-      font-size: 2.5rem;
+      font-size: 2rem;
       font-weight: 700;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
 
     .header p {
-      font-size: 1.1rem;
+      font-size: 1rem;
       opacity: 0.9;
       margin-bottom: 0;
     }
@@ -68,12 +68,12 @@
       background-color: white;
       border-bottom: 2px solid var(--light-gray);
       font-weight: 600;
-      font-size: 1.1rem;
-      padding: 15px 20px;
+      font-size: 1rem;
+      padding: 12px 15px;
     }
 
     .card-body {
-      padding: 20px;
+      padding: 15px;
     }
 
     /* File type selector */
@@ -81,19 +81,23 @@
       display: flex;
       gap: 10px;
       margin-bottom: 20px;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
 
     .file-type-btn {
       flex: 1;
-      min-width: 120px;
-      padding: 15px 20px;
+      width: 50%;
+      padding: 12px 10px;
       border: 2px solid var(--border-color);
       border-radius: 8px;
       background: white;
       cursor: pointer;
       transition: all 0.3s ease;
       text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
     }
 
     .file-type-btn:hover {
@@ -110,6 +114,7 @@
     .file-type-btn .icon {
       font-size: 2rem;
       margin-bottom: 5px;
+      line-height: 1;
     }
 
     .file-type-btn .label {
@@ -117,37 +122,16 @@
       font-size: 0.9rem;
     }
 
-    .file-type-btn .formats {
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      margin-top: 5px;
-    }
-
-    .file-type-btn.active .formats {
-      color: rgba(255, 255, 255, 0.8);
-    }
-
-    .file-type-btn .hint-text {
-      font-size: 0.7rem;
-      color: var(--text-muted);
-      margin-top: 3px;
-      font-style: italic;
-    }
-
-    .file-type-btn.active .hint-text {
-      color: rgba(255, 255, 255, 0.7);
-    }
-
     /* Upload area */
     .upload-area {
       border: 2px dashed var(--border-color);
       border-radius: 10px;
-      padding: 40px 20px;
+      padding: 25px 15px;
       text-align: center;
       background-color: white;
       cursor: pointer;
       transition: all 0.3s ease;
-      margin-bottom: 20px;
+      margin-bottom: 15px;
     }
 
     .upload-area:hover {
@@ -161,19 +145,19 @@
     }
 
     .upload-area .icon {
-      font-size: 3rem;
-      color: var(--text-muted);
-      margin-bottom: 15px;
-    }
-
-    .upload-area .text {
-      font-size: 1.1rem;
+      font-size: 2.5rem;
       color: var(--text-muted);
       margin-bottom: 10px;
     }
 
+    .upload-area .text {
+      font-size: 1rem;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
     .upload-area .hint {
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       color: var(--text-muted);
     }
 
@@ -396,7 +380,19 @@
       }
 
       .file-type-btn {
-        min-width: 100%;
+        /* Keep buttons horizontal on mobile - 50% width each */
+        flex: 1;
+        width: 50%;
+        padding: 15px 8px;
+      }
+
+      .file-type-btn .icon {
+        font-size: 2.2rem;
+        margin-bottom: 4px;
+      }
+
+      .file-type-btn .label {
+        font-size: 0.85rem;
       }
 
       .image-preview-grid {
@@ -468,28 +464,21 @@
       <!-- Header -->
       <div class="header">
         <h1>📄 HTTPrint</h1>
-        <p>轻松上传并打印您的文件 - 支持图片和文档（PDF、Office）</p>
       </div>
 
       <!-- Main card -->
       <div class="card">
-        <div class="card-header">
-          选择文件类型
-        </div>
+
         <div class="card-body">
           <!-- File type selector -->
           <div class="file-type-selector">
             <div class="file-type-btn" data-type="images">
               <div class="icon">🖼️</div>
-              <div class="label">图片文件</div>
-              <div class="formats">.jpg .png .gif .bmp .tiff</div>
-              <div class="hint-text">可上传多张，自动合并为 PDF</div>
+              <div class="label">图片</div>
             </div>
             <div class="file-type-btn" data-type="documents">
               <div class="icon">📄</div>
-              <div class="label">文档文件</div>
-              <div class="formats">PDF / Word / Excel / PowerPoint / TXT</div>
-              <div class="hint-text">只能上传一个文件</div>
+              <div class="label">文档</div>
             </div>
           </div>
 
@@ -568,8 +557,8 @@
         </div>
       </div>
 
-      <!-- Instructions card -->
-      <div class="card">
+      <!-- Instructions card - Hidden for mobile optimization -->
+      <div class="card" style="display: none;">
         <div class="card-header">
           使用说明
         </div>

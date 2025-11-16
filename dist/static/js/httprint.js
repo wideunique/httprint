@@ -32,6 +32,8 @@
 
     // Initialize
     function init() {
+        console.log('HTTPrint: Initializing...');
+
         // Get DOM elements
         elements = {
             fileTypeButtons: document.querySelectorAll('.file-type-btn'),
@@ -62,6 +64,11 @@
 
         // Bind events
         bindEvents();
+
+        // Auto-select "images" file type by default (skip clearing files since there are none initially)
+        console.log('HTTPrint: Auto-selecting "images" file type...');
+        selectFileType('images', true);
+        console.log('HTTPrint: Initialization complete. Upload area should be visible.');
     }
 
     // Bind all event listeners
@@ -93,13 +100,17 @@
     }
 
     // Select file type
-    function selectFileType(type) {
+    function selectFileType(type, skipClear = false) {
+        console.log('HTTPrint: selectFileType called with type:', type, 'skipClear:', skipClear);
+
         state.selectedType = type;
         const config = fileTypes[type];
 
         // Update UI
         elements.fileTypeButtons.forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.type === type);
+            const isActive = btn.dataset.type === type;
+            btn.classList.toggle('active', isActive);
+            console.log('HTTPrint: Button', btn.dataset.type, 'active:', isActive);
         });
 
         // Configure file input
@@ -112,9 +123,12 @@
         // Show upload area
         elements.uploadArea.style.display = 'block';
         elements.infoAlert.style.display = 'none';
+        console.log('HTTPrint: Upload area display set to block, info alert hidden');
 
-        // Clear previous files
-        clearFiles();
+        // Clear previous files (skip during initial auto-selection)
+        if (!skipClear) {
+            clearFiles();
+        }
     }
 
     // Handle file selection
