@@ -311,6 +311,13 @@ class BaseHandler(tornado.web.RequestHandler):
         sides = printconf.get('sides')
         media = printconf.get('media')
 
+        # Check if images were rotated (landscape orientation)
+        # If so, and duplex is enabled, use short-edge duplex instead of long-edge
+        has_rotated_images = printconf.get('has_rotated_images', 'false').lower() == 'true'
+        if has_rotated_images and sides == 'two-sided-long-edge':
+            sides = 'two-sided-short-edge'
+            logger.info("Switching to short-edge duplex for rotated landscape images")
+
         print_cmd = self.cfg.print_cmd.split(' ')
         cmd = [x % {'copies': copies, 'sides': sides, 'media': media} for x in print_cmd]
         if page_ranges:
@@ -350,11 +357,54 @@ class UploadHandler(BaseHandler):
         return ext in image_extensions
 
     def convert_images_to_pdf(self, image_files, output_pdf):
-        """Convert multiple images to a single PDF file with A4 page fitting."""
+        """Convert multiple images to a single PDF file with A4 page fitting.
+
+        Landscape images (width > height) are rotated 90 degrees clockwise
+        to ensure proper landscape printing output.
+
+        Returns:
+            tuple: (success: bool, has_rotated_images: bool)
+                - success: True if conversion succeeded, False otherwise
+                - has_rotated_images: True if any images were rotated for landscape orientation
+        """
         if not IMAGE_SUPPORT:
             raise Exception("Image support not available. Please install Pillow and img2pdf.")
 
         try:
+            # Process images: detect landscape orientation and rotate if needed
+            processed_files = []
+            rotated_temp_files = []
+            has_rotated_images = False
+
+            for img_path in image_files:
+                try:
+                    with Image.open(img_path) as img:
+                        width, height = img.size
+
+                        # Check if image is landscape (width > height)
+                        if width > height:
+                            # Rotate landscape image 90 degrees clockwise for proper printing
+                            rotated_img = img.rotate(-90, expand=True)
+
+                            # Save rotated image to temporary file with same extension
+                            # Extract the original file extension to preserve format
+                            base_name, ext = os.path.splitext(img_path)
+                            temp_rotated_path = base_name + '_rotated' + ext
+                            rotated_img.save(temp_rotated_path)
+                            processed_files.append(temp_rotated_path)
+                            rotated_temp_files.append(temp_rotated_path)
+                            has_rotated_images = True
+
+                            logger.info("Rotated landscape image: %s (%dx%d -> %dx%d)",
+                                       img_path, width, height, height, width)
+                        else:
+                            # Portrait or square image - use as is
+                            processed_files.append(img_path)
+                except Exception as e:
+                    logger.error("Error processing image %s: %s", img_path, e)
+                    # If we can't process the image, use it as-is
+                    processed_files.append(img_path)
+
             # A4 size in points (1 inch = 72 points)
             # A4 portrait: 210mm × 297mm = 595.28 × 841.89 points
             a4_portrait = (img2pdf.mm_to_pt(210), img2pdf.mm_to_pt(297))
@@ -365,16 +415,30 @@ class UploadHandler(BaseHandler):
 
             with open(output_pdf, 'wb') as f:
                 f.write(img2pdf.convert(
-                    image_files,
+                    processed_files,
                     layout_fun=layout_fun,
                     rotation=img2pdf.Rotation.ifvalid
                 ))
 
             logger.info("Converted %d image(s) to PDF with A4 page fitting", len(image_files))
-            return True
+
+            # Clean up temporary rotated files
+            for temp_file in rotated_temp_files:
+                try:
+                    os.unlink(temp_file)
+                except Exception:
+                    pass
+
+            return True, has_rotated_images
         except Exception as e:
             logger.error("Error converting images to PDF: %s", e)
-            return False
+            # Clean up any temporary files on error
+            for temp_file in rotated_temp_files:
+                try:
+                    os.unlink(temp_file)
+                except Exception:
+                    pass
+            return False, False
 
     def is_office_file(self, filename):
         """Check if file is an Office document based on extension."""
@@ -619,6 +683,7 @@ class UploadHandler(BaseHandler):
         unique_id = str(uuid.uuid4())[:8]  # Use first 8 chars of UUID for shorter filenames
 
         # Branch 1: Handle images - convert to PDF
+        has_rotated_images = False
         if all_images:
             if len(uploaded_files) > 1:
                 # Multiple images - combine into single PDF
@@ -633,7 +698,8 @@ class UploadHandler(BaseHandler):
                     # Convert images to PDF
                     fname = f'{now}_{unique_id}.pdf'
                     pname = os.path.join(self.cfg.queue_dir, fname)
-                    if not self.convert_images_to_pdf(temp_image_files, pname):
+                    success, has_rotated_images = self.convert_images_to_pdf(temp_image_files, pname)
+                    if not success:
                         self.build_error("failed to convert images to PDF")
                         return
 
@@ -656,7 +722,8 @@ class UploadHandler(BaseHandler):
 
                     fname = f'{now}_{unique_id}.pdf'
                     pname = os.path.join(self.cfg.queue_dir, fname)
-                    if not self.convert_images_to_pdf([temp_fname], pname):
+                    success, has_rotated_images = self.convert_images_to_pdf([temp_fname], pname)
+                    if not success:
                         self.build_error("failed to convert image to PDF")
                         return
 
@@ -757,6 +824,7 @@ class UploadHandler(BaseHandler):
         printconf['media'] = '%s' % media
         printconf['color'] = '%s' % color
         printconf['double_sided'] = 'true' if double_sided else 'false'
+        printconf['has_rotated_images'] = 'true' if has_rotated_images else 'false'
 
         failure = False
         if self.cfg.check_pdf_pages or self.cfg.pdf_only:
