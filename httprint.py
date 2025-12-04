@@ -571,26 +571,20 @@ class UploadHandler(BaseHandler):
             # Split text into lines and wrap long lines
             lines = []
             for paragraph in text_content.split('\n'):
-                if not paragraph.strip():
-                    lines.append('')  # Empty line
+                if paragraph == '':
+                    lines.append('')  # Preserve empty lines
                     continue
 
-                # Wrap long lines
-                words = paragraph.split(' ')
                 current_line = ''
-
-                for word in words:
-                    test_line = current_line + (' ' if current_line else '') + word
-                    # Estimate width (rough approximation)
-                    if c.stringWidth(test_line, font_name, font_size) <= usable_width:
-                        current_line = test_line
+                for ch in paragraph:
+                    candidate = current_line + ch
+                    if current_line and c.stringWidth(candidate, font_name, font_size) > usable_width:
+                        lines.append(current_line)
+                        current_line = ch
                     else:
-                        if current_line:
-                            lines.append(current_line)
-                        current_line = word
+                        current_line = candidate
 
-                if current_line:
-                    lines.append(current_line)
+                lines.append(current_line)
 
             # Draw text on pages
             y_position = height - top_margin
