@@ -7,8 +7,19 @@ A very simple web interface to upload and print files.
 
 Dependencies:
 * Python 3
-* **pdfinfo** executable (package: **poppler-utils**)
-* **lp** command (CUPS client) available in PATH
+* System tools for printing/conversion:
+  * `lp`/CUPS client (`cups-client`)
+  * `pdfinfo` (`poppler-utils`)
+  * LibreOffice filters (`libreoffice-writer libreoffice-calc libreoffice-impress` or the `libreoffice` meta package)
+  * Optional but useful: `fonts-noto-cjk` for中文字体、`unoconv` (alternative UNO bridge)
+* Python libs: see `requirements.txt` (includes `reportlab` for TXT→PDF, `Pillow`/`img2pdf` for图片)
+
+On Debian/Ubuntu:
+```bash
+sudo apt-get update
+sudo apt-get install -y libreoffice libreoffice-writer libreoffice-calc libreoffice-impress \
+  poppler-utils cups-client fonts-noto-cjk unoconv
+```
 
 Recommended (virtualenv):
 ```bash
