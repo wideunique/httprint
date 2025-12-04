@@ -81,12 +81,12 @@
       display: flex;
       gap: 10px;
       margin-bottom: 20px;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
     }
 
     .file-type-btn {
-      flex: 1;
-      width: 50%;
+      flex: 1 1 0;
+      min-width: 140px;
       padding: 12px 10px;
       border: 2px solid var(--border-color);
       border-radius: 8px;
@@ -379,10 +379,14 @@
         font-size: 0.95rem;
       }
 
+      .file-type-selector {
+        gap: 8px;
+      }
+
       .file-type-btn {
-        /* Keep buttons horizontal on mobile - 50% width each */
-        flex: 1;
-        width: 50%;
+        /* Stack buttons when space is tight */
+        flex: 1 1 100%;
+        width: 100%;
         padding: 15px 8px;
       }
 
@@ -480,6 +484,10 @@
               <div class="icon">📄</div>
               <div class="label">文档</div>
             </div>
+            <div class="file-type-btn" data-type="text">
+              <div class="icon">📝</div>
+              <div class="label">TEXT</div>
+            </div>
           </div>
 
           <!-- Info alert -->
@@ -492,6 +500,12 @@
             <div class="icon">☁️</div>
             <div class="text">点击或拖拽文件到此处上传</div>
             <div class="hint" id="upload-hint">支持的格式</div>
+          </div>
+
+          <div class="form-group" id="text-input-group" style="display: none;">
+            <label for="text-input">文本内容</label>
+            <textarea class="form-control" id="text-input" rows="6" placeholder="粘贴纯文本，提交时自动生成 TXT 文件上传"></textarea>
+            <small class="form-text text-muted">内容会在浏览器中生成 text.txt 并上传打印。</small>
           </div>
 
           <!-- Hidden file input -->
@@ -508,7 +522,10 @@
                 <div class="file-name" id="file-name">文件名.pdf</div>
                 <div class="file-meta" id="file-meta">大小: 1.2 MB</div>
               </div>
-              <button class="btn btn-sm btn-danger" id="remove-file-btn">删除</button>
+              <div class="d-flex align-items-center gap-2">
+                <a class="btn btn-sm btn-outline-secondary mr-2" id="download-file-btn" style="display: none;">下载</a>
+                <button class="btn btn-sm btn-danger" id="remove-file-btn">删除</button>
+              </div>
             </div>
           </div>
 

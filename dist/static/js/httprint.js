@@ -24,11 +24,19 @@
             multiple: false,
             icon: '📄',
             hint: '支持的格式：PDF, Word, Excel, PowerPoint, TXT（只能上传一个文件）'
+        },
+        text: {
+            accept: '.txt',
+            multiple: false,
+            icon: '📝',
+            hint: '粘贴纯文本，前端将生成 TXT 文件并上传',
+            isText: true
         }
     };
 
     // DOM elements
     let elements = {};
+    let currentDownloadUrl = null;
 
     // Initialize
     function init() {
@@ -46,6 +54,7 @@
             fileName: document.getElementById('file-name'),
             fileMeta: document.getElementById('file-meta'),
             removeFileBtn: document.getElementById('remove-file-btn'),
+            downloadFileBtn: document.getElementById('download-file-btn'),
             uploadProgress: document.getElementById('upload-progress'),
             progressBar: document.getElementById('progress-bar'),
             copiesGroup: document.getElementById('copies-group'),
@@ -59,7 +68,9 @@
             printBtnText: document.getElementById('print-btn-text'),
             printSpinner: document.getElementById('print-spinner'),
             clearBtn: document.getElementById('clear-btn'),
-            infoAlert: document.getElementById('info-alert')
+            infoAlert: document.getElementById('info-alert'),
+            textInputGroup: document.getElementById('text-input-group'),
+            textInput: document.getElementById('text-input')
         };
 
         // Bind events
@@ -92,11 +103,21 @@
         // Remove file button
         elements.removeFileBtn.addEventListener('click', clearFiles);
 
+        // Download button
+        if (elements.downloadFileBtn) {
+            elements.downloadFileBtn.addEventListener('click', triggerDownload);
+        }
+
         // Print button
         elements.printBtn.addEventListener('click', uploadFiles);
 
         // Clear button
         elements.clearBtn.addEventListener('click', clearFiles);
+
+        // Text input handling
+        if (elements.textInput) {
+            elements.textInput.addEventListener('input', handleTextInput);
+        }
     }
 
     // Select file type
@@ -105,6 +126,7 @@
 
         state.selectedType = type;
         const config = fileTypes[type];
+        const isText = !!config.isText;
 
         // Update UI
         elements.fileTypeButtons.forEach(btn => {
@@ -120,14 +142,25 @@
         // Update upload hint
         elements.uploadHint.textContent = config.hint;
 
-        // Show upload area
-        elements.uploadArea.style.display = 'block';
+        // Toggle upload/text areas
+        elements.uploadArea.style.display = isText ? 'none' : 'block';
+        if (elements.textInputGroup) {
+            elements.textInputGroup.style.display = isText ? 'block' : 'none';
+        }
         elements.infoAlert.style.display = 'none';
-        console.log('HTTPrint: Upload area display set to block, info alert hidden');
+        console.log('HTTPrint: Upload/Text area prepared, info alert hidden');
 
         // Clear previous files (skip during initial auto-selection)
         if (!skipClear) {
             clearFiles();
+        }
+
+        if (isText) {
+            if (elements.textInput) {
+                elements.textInput.focus();
+            }
+            // Re-evaluate existing text content
+            handleTextInput();
         }
     }
 
@@ -180,6 +213,34 @@
         }
     }
 
+    // Handle text input to generate a TXT file
+    function handleTextInput() {
+        if (state.selectedType !== 'text') {
+            return;
+        }
+
+        const content = elements.textInput.value;
+        if (!content.trim()) {
+            state.files = [];
+            updateUI();
+            return;
+        }
+
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const filename = 'text.txt';
+        let file;
+
+        if (typeof File === 'function') {
+            file = new File([blob], filename, { type: 'text/plain' });
+        } else {
+            blob.name = filename;
+            file = blob;
+        }
+
+        state.files = [file];
+        updateUI();
+    }
+
     // Add files to state
     function addFiles(files) {
         const config = fileTypes[state.selectedType];
@@ -200,9 +261,16 @@
 
     // Update UI based on current state
     function updateUI() {
+        const isText = state.selectedType === 'text';
+
+        // Keep text input visibility in sync with selection
+        if (elements.textInputGroup) {
+            elements.textInputGroup.style.display = isText ? 'block' : 'none';
+        }
+
         if (state.files.length === 0) {
             // No files selected
-            elements.uploadArea.style.display = 'block';
+            elements.uploadArea.style.display = isText ? 'none' : 'block';
             elements.imagePreviewGrid.style.display = 'none';
             elements.fileInfoDisplay.style.display = 'none';
             elements.copiesGroup.style.display = 'none';
@@ -222,6 +290,9 @@
             renderImageGrid();
             elements.imagePreviewGrid.style.display = 'grid';
             elements.fileInfoDisplay.style.display = 'none';
+            if (elements.downloadFileBtn) {
+                elements.downloadFileBtn.style.display = 'none';
+            }
         } else {
             // Single file - show info display
             renderFileInfo();
@@ -322,11 +393,22 @@
             icon = '📊';
         } else if (['ppt', 'pptx'].includes(ext)) {
             icon = '📽️';
+        } else if (['txt'].includes(ext)) {
+            icon = '📄';
         }
 
         elements.fileIcon.textContent = icon;
         elements.fileName.textContent = file.name;
         elements.fileMeta.textContent = `大小: ${formatFileSize(file.size)}`;
+
+        // Toggle download button for generated text
+        if (state.selectedType === 'text' && elements.downloadFileBtn) {
+            updateDownloadLink(file);
+            elements.downloadFileBtn.style.display = 'inline-block';
+        } else if (elements.downloadFileBtn) {
+            elements.downloadFileBtn.style.display = 'none';
+            clearDownloadLink();
+        }
     }
 
     // Remove file by index
@@ -337,11 +419,47 @@
 
     // Clear all files
     function clearFiles() {
+        clearDownloadLink();
         state.files = [];
         elements.fileInput.value = '';
         elements.pagesInput.value = '';
         elements.doubleSidedInput.checked = true;
+        if (elements.textInput) {
+            elements.textInput.value = '';
+        }
         updateUI();
+    }
+
+    // Update download link for text files
+    function updateDownloadLink(file) {
+        clearDownloadLink();
+        if (!elements.downloadFileBtn || !file) {
+            return;
+        }
+        const url = URL.createObjectURL(file);
+        currentDownloadUrl = url;
+        elements.downloadFileBtn.href = url;
+        elements.downloadFileBtn.download = file.name || 'text.txt';
+    }
+
+    // Clear download link and revoke URL
+    function clearDownloadLink() {
+        if (currentDownloadUrl) {
+            URL.revokeObjectURL(currentDownloadUrl);
+            currentDownloadUrl = null;
+        }
+        if (elements.downloadFileBtn) {
+            elements.downloadFileBtn.removeAttribute('href');
+            elements.downloadFileBtn.removeAttribute('download');
+        }
+    }
+
+    // Trigger download manually when using button element
+    function triggerDownload(e) {
+        if (!elements.downloadFileBtn || !elements.downloadFileBtn.href) {
+            e.preventDefault();
+        }
+        // Anchor handles download via href+download
     }
 
     // Upload files to server
