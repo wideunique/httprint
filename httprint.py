@@ -85,6 +85,7 @@ QUEUE_DIR = 'queue'
 ARCHIVE = True
 ARCHIVE_DIR = 'archive'
 PRINT_CMD = 'lp -n %(copies)s -o sides=%(sides)s -o media=%(media)s'
+ARCHIVE_RETENTION_DAYS = 3
 
 MAX_PAGES = 10
 
@@ -113,6 +114,7 @@ DEFAULT_CONFIG = {
     'queue_dir': QUEUE_DIR,
     'archive': ARCHIVE,
     'archive_dir': ARCHIVE_DIR,
+    'archive_retention_days': ARCHIVE_RETENTION_DAYS,
     'pdf_only': True,
     'check_pdf_pages': True,
     'print_cmd': PRINT_CMD,
@@ -268,6 +270,32 @@ class BaseHandler(tornado.web.RequestHandler):
         self.set_status(status)
         self.write({'error': False, 'message': message})
 
+    def _clean_old_archives(self):
+        """Remove archived files older than the configured retention window."""
+        if not getattr(self.cfg, 'archive', False):
+            return
+
+        try:
+            retention_days = int(getattr(self.cfg, 'archive_retention_days', ARCHIVE_RETENTION_DAYS))
+        except (TypeError, ValueError):
+            retention_days = ARCHIVE_RETENTION_DAYS
+
+        if retention_days <= 0:
+            return
+
+        archive_dir = getattr(self.cfg, 'archive_dir', ARCHIVE_DIR)
+        if not os.path.isdir(archive_dir):
+            return
+
+        cutoff = time.time() - retention_days * 86400
+        for entry in os.scandir(archive_dir):
+            try:
+                if entry.is_file() and entry.stat().st_mtime < cutoff:
+                    os.remove(entry.path)
+                    logger.info(f"Removed archived file older than {retention_days} days: {entry.name}")
+            except Exception as exc:
+                logger.warning(f"Failed to remove archived file {entry.path}: {exc}")
+
     def _run(self, cmd, fname, callback=None):
         p = subprocess.Popen(cmd, close_fds=True)
         p.communicate()
@@ -280,6 +308,8 @@ class BaseHandler(tornado.web.RequestHandler):
         if self.cfg.archive:
             if not os.path.isdir(self.cfg.archive_dir):
                 os.makedirs(self.cfg.archive_dir)
+            # Drop stale archived files before storing new ones
+            self._clean_old_archives()
             for fn in glob.glob(fname + '*'):
                 shutil.move(fn, self.cfg.archive_dir)
         for fn in glob.glob(fname + '*'):

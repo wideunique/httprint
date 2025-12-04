@@ -6,6 +6,7 @@ address: ""
 queue_dir: queue
 archive: true
 archive_dir: archive
+archive_retention_days: 3
 
 # Printing behaviour
 pdf_only: true
