@@ -950,6 +950,7 @@ class TemplateHandler(BaseHandler):
         if args and args[0]:
             page = args[0].strip('/')
         arguments = self.arguments
+        arguments['max_pages'] = self.cfg.max_pages
         self.render(page, **arguments)
 
 
