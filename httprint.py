@@ -543,8 +543,8 @@ class UploadHandler(BaseHandler):
             return False
         return filename.lower().endswith('.txt')
 
-    def convert_txt_to_pdf(self, txt_file, output_pdf):
-        """Convert TXT file to PDF with proper Chinese font support and formatting."""
+    def convert_txt_to_pdf(self, txt_file, output_pdf, markdown=True):
+        """Convert UTF-8 text to PDF, rendering Markdown by default."""
         if not TXT_SUPPORT:
             raise Exception("TXT support not available. Please install reportlab.")
 
@@ -553,8 +553,6 @@ class UploadHandler(BaseHandler):
             with open(txt_file, 'r', encoding='utf-8', errors='ignore') as f:
                 text_content = f.read()
 
-            # Create PDF canvas
-            c = canvas.Canvas(output_pdf, pagesize=A4)
             width, height = A4
 
             # Try to register Chinese fonts (common system fonts)
@@ -581,6 +579,14 @@ class UploadHandler(BaseHandler):
                     except Exception as e:
                         logger.warning(f"Failed to register font {font_path}: {e}")
                         continue
+
+            if markdown:
+                from markdown_pdf import render_markdown_pdf
+                render_markdown_pdf(text_content, output_pdf, font_name)
+                logger.info(f"Successfully converted Markdown to PDF: {output_pdf}")
+                return True, None
+
+            c = canvas.Canvas(output_pdf, pagesize=A4)
 
             # Set margins
             left_margin = 20 * mm
@@ -676,6 +682,15 @@ class UploadHandler(BaseHandler):
             return
 
         sides = "two-sided-long-edge" if double_sided else "one-sided"
+
+        markdown_param = self.get_argument('markdown', default='true').strip().lower()
+        if markdown_param in ('true', '1', 'yes', 'on'):
+            markdown = True
+        elif markdown_param in ('false', '0', 'no', 'off'):
+            markdown = False
+        else:
+            self.build_error('invalid value for markdown')
+            return
 
         # Get all uploaded files
         uploaded_files = self.request.files['file']
@@ -804,7 +819,7 @@ class UploadHandler(BaseHandler):
                     fname = f'{now}_{unique_id}.pdf'
                     pname = os.path.join(self.cfg.queue_dir, fname)
 
-                    success, error_msg = self.convert_txt_to_pdf(temp_txt_fname, pname)
+                    success, error_msg = self.convert_txt_to_pdf(temp_txt_fname, pname, markdown=markdown)
                     if not success:
                         self.build_error(f"failed to convert TXT to PDF: {error_msg}")
                         return

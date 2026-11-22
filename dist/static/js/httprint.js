@@ -70,7 +70,8 @@
             clearBtn: document.getElementById('clear-btn'),
             infoAlert: document.getElementById('info-alert'),
             textInputGroup: document.getElementById('text-input-group'),
-            textInput: document.getElementById('text-input')
+            textInput: document.getElementById('text-input'),
+            markdownInput: document.getElementById('markdown')
         };
 
         // Bind events
@@ -501,6 +502,9 @@
             formData.append('pages', pages);
         }
         formData.append('double_sided', doubleSided ? 'true' : 'false');
+        if (state.selectedType === 'text') {
+            formData.append('markdown', elements.markdownInput.checked ? 'true' : 'false');
+        }
 
         // Upload using XMLHttpRequest for progress tracking
         const xhr = new XMLHttpRequest();

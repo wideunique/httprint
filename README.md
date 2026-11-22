@@ -70,7 +70,16 @@ See `config.yaml` for the complete list of switches and their defaults.
 
 Once a document is queued, it can be made persistent creating an empty file *code-docname.pdf.keep* in the *queue* directory.
 
-### Partial printing
+### TEXT and Markdown printing
+
+TEXT mode renders Markdown by default. Uncheck **Markdown 排版** to print the
+original text. TXT uploads accept `markdown=true` (default) or `markdown=false`.
+Headings, emphasis, lists, quotes, fenced code and tables are supported.
+Images print their descriptions; raw HTML prints as text, and remote resources
+are not loaded. Install the updated requirements before restarting the service.
+Markdown parsing uses [Mistune](https://mistune.lepture.com/en/latest/guide.html).
+
+### Partial printing options
 
 Uploads (including the web UI) may specify optional fields:
 

@@ -504,7 +504,12 @@
 
           <div class="form-group" id="text-input-group" style="display: none;">
             <label for="text-input">文本内容</label>
-            <textarea class="form-control" id="text-input" rows="6" placeholder="粘贴纯文本，提交时自动生成 TXT 文件上传"></textarea>
+            <textarea class="form-control" id="text-input" rows="6" placeholder="粘贴文本或 Markdown，提交时自动生成 TXT 文件上传"></textarea>
+            <div class="form-check mt-2">
+              <input type="checkbox" class="form-check-input" id="markdown" checked>
+              <label class="form-check-label" for="markdown">Markdown 排版</label>
+            </div>
+            <small class="form-text text-muted">默认渲染标题、列表、强调、代码和表格；取消勾选按纯文本打印。</small>
             <small class="form-text text-muted">内容会在浏览器中生成 text.txt 并上传打印。</small>
           </div>
 

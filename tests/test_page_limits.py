@@ -33,13 +33,19 @@ class TestConfiguredPageLimit(AsyncHTTPTestCase):
             template_path=str(ROOT / 'dist'),
         )
 
-    def upload(self, pages, copies):
+    def upload(self, pages, copies, filename='test.pdf', markdown=None):
+        markdown_field = '' if markdown is None else (
+            '--boundary\r\n'
+            'Content-Disposition: form-data; name="markdown"\r\n\r\n'
+            f'{markdown}\r\n'
+        )
         body = (
+            markdown_field +
             '--boundary\r\n'
             'Content-Disposition: form-data; name="copies"\r\n\r\n'
             f'{copies}\r\n'
             '--boundary\r\n'
-            'Content-Disposition: form-data; name="file"; filename="test.pdf"\r\n'
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
             'Content-Type: application/pdf\r\n\r\n'
             '%PDF-1.4\n\r\n'
             '--boundary--\r\n'
@@ -88,3 +94,35 @@ class TestConfiguredPageLimit(AsyncHTTPTestCase):
         assert json.loads(response.body)['message'] == 'too many pages to print (50002)'
         print_file.assert_not_called()
         assert list(Path(self.workspace.name).glob('*.pdf*')) == []
+
+    def test_text_defaults_to_markdown(self):
+        with patch.object(httprint.UploadHandler, 'convert_txt_to_pdf',
+                          return_value=(True, None)) as convert:
+            response, _ = self.upload(1, 1, filename='text.txt')
+        assert response.code == 200
+        assert convert.call_args.kwargs == {'markdown': True}
+
+    def test_text_upload_converts_and_prints_pdf(self):
+        response, print_file = self.upload(1, 1, filename='text.txt')
+        assert response.code == 200
+        print_file.assert_called_once()
+        output = Path(print_file.call_args.args[0])
+        assert output.read_bytes().startswith(b'%PDF-')
+
+    def test_text_page_has_markdown_enabled(self):
+        response = self.fetch('/')
+        assert response.code == 200
+        assert 'id="markdown" checked' in response.body.decode()
+
+    def test_text_can_disable_markdown(self):
+        with patch.object(httprint.UploadHandler, 'convert_txt_to_pdf',
+                          return_value=(True, None)) as convert:
+            response, _ = self.upload(1, 1, filename='text.txt', markdown='false')
+        assert response.code == 200
+        assert convert.call_args.kwargs == {'markdown': False}
+
+    def test_invalid_markdown_option_is_rejected(self):
+        response, print_file = self.upload(1, 1, filename='text.txt', markdown='invalid')
+        assert response.code == 400
+        assert json.loads(response.body)['message'] == 'invalid value for markdown'
+        print_file.assert_not_called()
