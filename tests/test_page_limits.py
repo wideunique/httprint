@@ -2,6 +2,7 @@ import importlib.util
 import json
 import logging
 from pathlib import Path
+import sys
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
@@ -10,6 +11,7 @@ from tornado.testing import AsyncHTTPTestCase
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 spec = importlib.util.spec_from_file_location('httprint', ROOT / 'httprint.py')
 httprint = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(httprint)
@@ -33,14 +35,19 @@ class TestConfiguredPageLimit(AsyncHTTPTestCase):
             template_path=str(ROOT / 'dist'),
         )
 
-    def upload(self, pages, copies, filename='test.pdf', markdown=None):
+    def upload(self, pages, copies, filename='test.pdf', markdown=None, text_font_size=None):
         markdown_field = '' if markdown is None else (
             '--boundary\r\n'
             'Content-Disposition: form-data; name="markdown"\r\n\r\n'
             f'{markdown}\r\n'
         )
+        font_size_field = '' if text_font_size is None else (
+            '--boundary\r\n'
+            'Content-Disposition: form-data; name="text_font_size"\r\n\r\n'
+            f'{text_font_size}\r\n'
+        )
         body = (
-            markdown_field +
+            markdown_field + font_size_field +
             '--boundary\r\n'
             'Content-Disposition: form-data; name="copies"\r\n\r\n'
             f'{copies}\r\n'
@@ -100,7 +107,7 @@ class TestConfiguredPageLimit(AsyncHTTPTestCase):
                           return_value=(True, None)) as convert:
             response, _ = self.upload(1, 1, filename='text.txt')
         assert response.code == 200
-        assert convert.call_args.kwargs == {'markdown': True}
+        assert convert.call_args.kwargs == {'markdown': True, 'font_size': 14}
 
     def test_text_upload_converts_and_prints_pdf(self):
         response, print_file = self.upload(1, 1, filename='text.txt')
@@ -114,12 +121,35 @@ class TestConfiguredPageLimit(AsyncHTTPTestCase):
         assert response.code == 200
         assert 'id="markdown" checked' in response.body.decode()
 
+    def test_text_page_defaults_to_14_point_font(self):
+        response = self.fetch('/')
+        assert response.code == 200
+        assert '<option value="14" selected>14 pt（默认）</option>' in response.body.decode()
+
     def test_text_can_disable_markdown(self):
         with patch.object(httprint.UploadHandler, 'convert_txt_to_pdf',
                           return_value=(True, None)) as convert:
             response, _ = self.upload(1, 1, filename='text.txt', markdown='false')
         assert response.code == 200
-        assert convert.call_args.kwargs == {'markdown': False}
+        assert convert.call_args.kwargs == {'markdown': False, 'font_size': 14}
+
+    def test_text_can_set_font_size(self):
+        with patch.object(httprint.UploadHandler, 'convert_txt_to_pdf',
+                          return_value=(True, None)) as convert:
+            response, _ = self.upload(1, 1, filename='text.txt', text_font_size='16')
+        assert response.code == 200
+        assert convert.call_args.kwargs == {'markdown': True, 'font_size': 16}
+
+    def test_invalid_text_font_size_is_rejected(self):
+        for font_size in ('5', '25', '10.5', 'invalid'):
+            response, print_file = self.upload(
+                1, 1, filename='text.txt', text_font_size=font_size,
+            )
+            assert response.code == 400
+            assert json.loads(response.body)['message'] == (
+                'text font size must be an integer between 6 and 24'
+            )
+            print_file.assert_not_called()
 
     def test_invalid_markdown_option_is_rejected(self):
         response, print_file = self.upload(1, 1, filename='text.txt', markdown='invalid')

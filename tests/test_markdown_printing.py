@@ -57,3 +57,16 @@ def test_conversion_reports_missing_source(tmp_path):
     success, error = handler.convert_txt_to_pdf(str(tmp_path / 'missing.txt'), str(tmp_path / 'out.pdf'))
     assert success is False
     assert 'missing.txt' in error
+
+
+@pytest.mark.parametrize('markdown', [True, False])
+def test_text_conversion_accepts_custom_font_size(tmp_path, monkeypatch, markdown):
+    monkeypatch.syspath_prepend(str(ROOT))
+    source = tmp_path / 'text.txt'
+    source.write_text('Custom font size\n', encoding='utf-8')
+    output = tmp_path / 'text.pdf'
+    handler = httprint.UploadHandler.__new__(httprint.UploadHandler)
+    assert handler.convert_txt_to_pdf(
+        str(source), str(output), markdown=markdown, font_size=16,
+    ) == (True, None)
+    assert output.read_bytes().startswith(b'%PDF-')

@@ -35,7 +35,7 @@ def inline_markup(tokens):
     return ''.join(parts)
 
 
-def render_markdown_pdf(text, output_pdf, font_name):
+def render_markdown_pdf(text, output_pdf, font_name, font_size=10):
     """Build paginated Markdown without fetching images or executing HTML."""
     if font_name != 'Helvetica':
         # System CJK fonts may have no separate bold/italic face.
@@ -44,7 +44,7 @@ def render_markdown_pdf(text, output_pdf, font_name):
             italic=font_name, boldItalic=font_name,
         )
     style = ParagraphStyle(
-        'Markdown', fontName=font_name, fontSize=10, leading=15,
+        'Markdown', fontName=font_name, fontSize=font_size, leading=font_size * 1.5,
         spaceAfter=7, wordWrap='CJK',
     )
     document = SimpleDocTemplate(
@@ -68,7 +68,7 @@ def render_markdown_pdf(text, output_pdf, font_name):
                 paragraph(inline_markup(children), indent)
             elif kind == 'heading':
                 level = token['attrs']['level']
-                size = max(11, 22 - level * 2)
+                size = max(font_size + 1, (22 - level * 2) * font_size / 10)
                 paragraph(inline_markup(children), indent, fontSize=size,
                           leading=size * 1.4, spaceBefore=10)
             elif kind == 'list':
@@ -90,7 +90,7 @@ def render_markdown_pdf(text, output_pdf, font_name):
                 for line in token['raw'].expandtabs(4).splitlines():
                     markup = escape(line).replace(' ', '&#160;')
                     paragraph(markup, indent, backColor=colors.HexColor('#eeeeee'),
-                              fontSize=9, leading=12, spaceAfter=0)
+                              fontSize=font_size * 0.9, leading=font_size * 1.2, spaceAfter=0)
                 story.append(Spacer(1, 7))
             elif kind == 'thematic_break':
                 story.append(HRFlowable(width='100%', spaceBefore=7, spaceAfter=7))

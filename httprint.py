@@ -543,7 +543,7 @@ class UploadHandler(BaseHandler):
             return False
         return filename.lower().endswith('.txt')
 
-    def convert_txt_to_pdf(self, txt_file, output_pdf, markdown=True):
+    def convert_txt_to_pdf(self, txt_file, output_pdf, markdown=True, font_size=14):
         """Convert UTF-8 text to PDF, rendering Markdown by default."""
         if not TXT_SUPPORT:
             raise Exception("TXT support not available. Please install reportlab.")
@@ -557,8 +557,6 @@ class UploadHandler(BaseHandler):
 
             # Try to register Chinese fonts (common system fonts)
             font_name = 'Helvetica'  # Default fallback
-            font_size = 10
-
             # Try to find and register a Chinese font
             chinese_fonts = [
                 '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',  # WenQuanYi Micro Hei (Linux)
@@ -582,7 +580,7 @@ class UploadHandler(BaseHandler):
 
             if markdown:
                 from markdown_pdf import render_markdown_pdf
-                render_markdown_pdf(text_content, output_pdf, font_name)
+                render_markdown_pdf(text_content, output_pdf, font_name, font_size=font_size)
                 logger.info(f"Successfully converted Markdown to PDF: {output_pdf}")
                 return True, None
 
@@ -810,6 +808,16 @@ class UploadHandler(BaseHandler):
                         pass
             elif self.is_txt_file(webFname):
                 # TXT file - convert to PDF
+                font_size_value = self.get_argument('text_font_size', default='14').strip()
+                try:
+                    text_font_size = int(font_size_value)
+                except ValueError:
+                    self.build_error('text font size must be an integer between 6 and 24')
+                    return
+                if not 6 <= text_font_size <= 24:
+                    self.build_error('text font size must be an integer between 6 and 24')
+                    return
+
                 temp_txt_fname = os.path.join(self.cfg.queue_dir, f'temp_{unique_id}_{fileinfo["filename"]}')
                 try:
                     with open(temp_txt_fname, 'wb') as fd:
@@ -819,7 +827,9 @@ class UploadHandler(BaseHandler):
                     fname = f'{now}_{unique_id}.pdf'
                     pname = os.path.join(self.cfg.queue_dir, fname)
 
-                    success, error_msg = self.convert_txt_to_pdf(temp_txt_fname, pname, markdown=markdown)
+                    success, error_msg = self.convert_txt_to_pdf(
+                        temp_txt_fname, pname, markdown=markdown, font_size=text_font_size,
+                    )
                     if not success:
                         self.build_error(f"failed to convert TXT to PDF: {error_msg}")
                         return

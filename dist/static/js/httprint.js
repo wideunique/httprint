@@ -71,7 +71,8 @@
             infoAlert: document.getElementById('info-alert'),
             textInputGroup: document.getElementById('text-input-group'),
             textInput: document.getElementById('text-input'),
-            markdownInput: document.getElementById('markdown')
+            markdownInput: document.getElementById('markdown'),
+            textFontSizeInput: document.getElementById('text-font-size')
         };
 
         // Bind events
@@ -504,6 +505,7 @@
         formData.append('double_sided', doubleSided ? 'true' : 'false');
         if (state.selectedType === 'text') {
             formData.append('markdown', elements.markdownInput.checked ? 'true' : 'false');
+            formData.append('text_font_size', elements.textFontSizeInput.value);
         }
 
         // Upload using XMLHttpRequest for progress tracking
