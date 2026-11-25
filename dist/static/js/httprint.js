@@ -8,7 +8,9 @@
     const state = {
         selectedType: null,
         files: [],
-        isUploading: false
+        isUploading: false,
+        previewRequest: null,
+        previewUrl: null
     };
 
     // File type configurations
@@ -31,6 +33,11 @@
             icon: '📝',
             hint: '粘贴纯文本，前端将生成 TXT 文件并上传',
             isText: true
+        },
+        url: {
+            accept: '.pdf',
+            multiple: false,
+            hint: ''
         }
     };
 
@@ -72,7 +79,17 @@
             textInputGroup: document.getElementById('text-input-group'),
             textInput: document.getElementById('text-input'),
             markdownInput: document.getElementById('markdown'),
-            textFontSizeInput: document.getElementById('text-font-size')
+            textFontSizeInput: document.getElementById('text-font-size'),
+            urlPrint: document.getElementById('url-print'),
+            urlForm: document.getElementById('url-preview-form'),
+            urlInput: document.getElementById('url-input'),
+            urlReaderMode: document.getElementById('url-reader-mode'),
+            urlIncludeImages: document.getElementById('url-include-images'),
+            urlPreviewBtn: document.getElementById('url-preview-btn'),
+            urlStatus: document.getElementById('url-preview-status'),
+            urlPreview: document.getElementById('url-preview'),
+            urlFrame: document.getElementById('url-preview-frame'),
+            urlLink: document.getElementById('url-preview-link')
         };
 
         // Bind events
@@ -116,6 +133,11 @@
         // Clear button
         elements.clearBtn.addEventListener('click', clearFiles);
 
+        elements.urlForm.addEventListener('submit', generateUrlPreview);
+        elements.urlInput.addEventListener('input', invalidateUrlPreview);
+        elements.urlReaderMode.addEventListener('change', invalidateUrlPreview);
+        elements.urlIncludeImages.addEventListener('change', invalidateUrlPreview);
+
         // Text input handling
         if (elements.textInput) {
             elements.textInput.addEventListener('input', handleTextInput);
@@ -124,6 +146,9 @@
 
     // Select file type
     function selectFileType(type, skipClear = false) {
+        if (state.isUploading) {
+            return;
+        }
         console.log('HTTPrint: selectFileType called with type:', type, 'skipClear:', skipClear);
 
         state.selectedType = type;
@@ -145,7 +170,7 @@
         elements.uploadHint.textContent = config.hint;
 
         // Toggle upload/text areas
-        elements.uploadArea.style.display = isText ? 'none' : 'block';
+        elements.uploadArea.style.display = isText || type === 'url' ? 'none' : 'block';
         if (elements.textInputGroup) {
             elements.textInputGroup.style.display = isText ? 'block' : 'none';
         }
@@ -164,6 +189,81 @@
             // Re-evaluate existing text content
             handleTextInput();
         }
+        if (type === 'url') {
+            elements.urlInput.focus();
+        }
+    }
+
+    async function generateUrlPreview(event) {
+        event.preventDefault();
+        if (state.isUploading || state.previewRequest) {
+            return;
+        }
+        invalidateUrlPreview();
+
+        const request = new AbortController();
+        state.previewRequest = request;
+        elements.urlPreviewBtn.disabled = true;
+        elements.urlStatus.textContent = '正在加载网页并生成 PDF…';
+
+        try {
+            const response = await fetch('/api/url-preview', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    url: elements.urlInput.value.trim(),
+                    reader_mode: elements.urlReaderMode.checked,
+                    include_images: elements.urlIncludeImages.checked
+                }),
+                signal: request.signal
+            });
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.message || '无法生成网页预览。');
+            }
+            const blob = await response.blob();
+            if (state.previewRequest !== request) {
+                return;
+            }
+            const pdf = new File([blob], 'webpage.pdf', {type: 'application/pdf'});
+            state.previewUrl = URL.createObjectURL(pdf);
+            elements.urlFrame.src = state.previewUrl;
+            elements.urlLink.href = state.previewUrl;
+            elements.urlPreview.hidden = false;
+            elements.urlStatus.textContent = '';
+            addFiles([pdf]);
+        } catch (error) {
+            if (state.previewRequest === request) {
+                elements.urlStatus.textContent = error.message || '无法生成网页预览。';
+            }
+        } finally {
+            if (state.previewRequest === request) {
+                state.previewRequest = null;
+                elements.urlPreviewBtn.disabled = false;
+            }
+        }
+    }
+
+    function invalidateUrlPreview() {
+        clearUrlPreview();
+        state.files = [];
+        updateUI();
+    }
+
+    function clearUrlPreview() {
+        if (state.previewRequest) {
+            state.previewRequest.abort();
+            state.previewRequest = null;
+        }
+        if (state.previewUrl) {
+            elements.urlFrame.removeAttribute('src');
+            elements.urlLink.removeAttribute('href');
+            URL.revokeObjectURL(state.previewUrl);
+            state.previewUrl = null;
+        }
+        elements.urlPreview.hidden = true;
+        elements.urlPreviewBtn.disabled = false;
+        elements.urlStatus.textContent = '';
     }
 
     // Handle file selection
@@ -264,6 +364,8 @@
     // Update UI based on current state
     function updateUI() {
         const isText = state.selectedType === 'text';
+        const isUrl = state.selectedType === 'url';
+        elements.urlPrint.hidden = !isUrl;
 
         // Keep text input visibility in sync with selection
         if (elements.textInputGroup) {
@@ -272,7 +374,7 @@
 
         if (state.files.length === 0) {
             // No files selected
-            elements.uploadArea.style.display = isText ? 'none' : 'block';
+            elements.uploadArea.style.display = isText || isUrl ? 'none' : 'block';
             elements.imagePreviewGrid.style.display = 'none';
             elements.fileInfoDisplay.style.display = 'none';
             elements.copiesGroup.style.display = 'none';
@@ -422,6 +524,8 @@
     // Clear all files
     function clearFiles() {
         clearDownloadLink();
+        clearUrlPreview();
+        elements.urlInput.value = '';
         state.files = [];
         elements.fileInput.value = '';
         elements.pagesInput.value = '';
@@ -478,6 +582,10 @@
         }
 
         state.isUploading = true;
+        elements.urlInput.disabled = true;
+        elements.urlReaderMode.disabled = true;
+        elements.urlIncludeImages.disabled = true;
+        elements.urlPreviewBtn.disabled = true;
 
         // Disable buttons
         elements.printBtn.disabled = true;
@@ -551,6 +659,9 @@
     // Handle upload success
     function handleUploadSuccess(response) {
         state.isUploading = false;
+        elements.urlInput.disabled = false;
+        elements.urlReaderMode.disabled = false;
+        elements.urlIncludeImages.disabled = false;
 
         // Hide progress bar
         elements.uploadProgress.classList.remove('active');
@@ -596,6 +707,10 @@
     // Handle upload error
     function handleUploadError(message) {
         state.isUploading = false;
+        elements.urlInput.disabled = false;
+        elements.urlReaderMode.disabled = false;
+        elements.urlIncludeImages.disabled = false;
+        elements.urlPreviewBtn.disabled = false;
 
         // Hide progress bar
         elements.uploadProgress.classList.remove('active');

@@ -488,6 +488,10 @@
               <div class="icon">📝</div>
               <div class="label">TEXT</div>
             </div>
+            <button type="button" class="file-type-btn" data-type="url">
+              <span class="icon">🌐</span>
+              <span class="label">URL</span>
+            </button>
           </div>
 
           <!-- Info alert -->
@@ -524,6 +528,33 @@
             </div>
             <small class="form-text text-muted">默认渲染标题、列表、强调、代码和表格；取消勾选按纯文本打印。</small>
             <small class="form-text text-muted">内容会在浏览器中生成 text.txt 并上传打印。</small>
+          </div>
+
+          <div id="url-print" hidden>
+            <form id="url-preview-form" class="form-group">
+              <label for="url-input">网页 URL</label>
+              <div class="input-group">
+                <input type="url" class="form-control" id="url-input" required maxlength="4096"
+                       placeholder="https://example.com/" autocomplete="off">
+                <div class="input-group-append">
+                  <button type="submit" class="btn btn-primary" id="url-preview-btn">生成预览</button>
+                </div>
+              </div>
+              <div class="form-check mt-2">
+                <input type="checkbox" class="form-check-input" id="url-reader-mode" checked>
+                <label class="form-check-label" for="url-reader-mode">阅读模式</label>
+              </div>
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="url-include-images" checked>
+                <label class="form-check-label" for="url-include-images">打印网页图片</label>
+              </div>
+              <div class="small mt-2" id="url-preview-status" role="status"></div>
+            </form>
+            <div id="url-preview" class="mb-3" hidden>
+              <iframe id="url-preview-frame" title="A4 PDF 预览" class="w-100 border rounded"
+                      style="height: 60vh;"></iframe>
+              <a id="url-preview-link" target="_blank" rel="noopener">在新标签页打开 PDF</a>
+            </div>
           </div>
 
           <!-- Hidden file input -->

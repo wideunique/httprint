@@ -15,6 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import asyncio
 import os
 import re
 import time
@@ -35,6 +36,8 @@ import tornado.web
 from tornado import gen, escape
 
 import configparser
+
+from url_preview import UrlPreviewError, render_url_pdf, validate_preview_url
 
 try:
     from PIL import Image
@@ -200,6 +203,7 @@ class HTTPrintBaseException(Exception):
 
 class BaseHandler(tornado.web.RequestHandler):
     """Base class for request handlers."""
+    log_request_body = True
     # A property to access the first value of each argument.
     arguments = property(lambda self: dict([(k, v[0].decode('utf-8'))
                                             for k, v in self.request.arguments.items()]))
@@ -234,7 +238,7 @@ class BaseHandler(tornado.web.RequestHandler):
             logger.debug(f"[REQUEST] {self.request.method} {self.request.uri}")
             logger.debug(f"[CLIENT] {self.request.remote_ip}")
             logger.debug(f"[HEADERS] {dict(self.request.headers)}")
-            if self.request.body:
+            if self.request.body and self.log_request_body:
                 # Only log body for non-file uploads (to avoid logging binary data)
                 content_type = self.request.headers.get('Content-Type', '')
                 if 'multipart/form-data' not in content_type:
@@ -966,6 +970,49 @@ class UploadHandler(BaseHandler):
         self.write(response)
 
 
+class UrlPreviewHandler(BaseHandler):
+    """Return an A4 PDF without creating a print job."""
+    log_request_body = False
+
+    async def post(self):
+        self.set_header('Cache-Control', 'no-store')
+        content_type = self.request.headers.get('Content-Type', '').partition(';')[0]
+        if content_type.strip().lower() != 'application/json':
+            self.build_error('请以 JSON 格式提交网址。', status=415)
+            return
+        if len(self.request.body) > 16384:
+            self.build_error('网址请求过长。', status=413)
+            return
+        try:
+            body = self.clean_body
+            url = validate_preview_url(body.get('url') if isinstance(body, dict) else None)
+        except ValueError:
+            self.build_error('请输入有效的公网 HTTP 或 HTTPS 网址，且网址不能包含登录凭据。')
+            return
+        include_images = body.get('include_images', True)
+        if not isinstance(include_images, bool):
+            self.build_error('打印网页图片选项必须是布尔值。')
+            return
+        reader_mode = body.get('reader_mode', True)
+        if not isinstance(reader_mode, bool):
+            self.build_error('阅读模式选项必须是布尔值。')
+            return
+
+        if self.capacity.locked():
+            self.build_error('网页预览繁忙，请稍后重试。', status=429)
+            return
+        try:
+            async with self.capacity:
+                pdf = await self.render(url, include_images=include_images, reader_mode=reader_mode)
+        except UrlPreviewError as exc:
+            self.build_error(str(exc), status=exc.status)
+            return
+
+        self.set_header('Content-Type', 'application/pdf')
+        self.set_header('X-Content-Type-Options', 'nosniff')
+        self.write(pdf)
+
+
 class TemplateHandler(BaseHandler):
     """Handler for the template files in the / path."""
     @gen.coroutine
@@ -997,9 +1044,12 @@ def serve(config_path=None):
     init_params = dict(listen_port=cfg.port, logger=logger, ssl_options=ssl_options, cfg=cfg)
 
     _upload_path = r'upload/?'
+    preview_params = dict(init_params, render=render_url_pdf, capacity=asyncio.Semaphore(2))
     application = tornado.web.Application([
             (r'/api/%s' % _upload_path, UploadHandler, init_params),
             (r'/api/v%s/%s' % (API_VERSION, _upload_path), UploadHandler, init_params),
+            (r'/api/url-preview/?', UrlPreviewHandler, preview_params),
+            (r'/api/v%s/url-preview/?' % API_VERSION, UrlPreviewHandler, preview_params),
             (r'/?(.*)', TemplateHandler, init_params),
         ],
         static_path=os.path.join(os.path.dirname(__file__), 'dist/static'),

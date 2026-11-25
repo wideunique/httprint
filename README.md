@@ -6,7 +6,7 @@ A very simple web interface to upload and print files.
 ## Install and run
 
 Dependencies:
-* Python 3
+* Python 3.10 or newer
 * System tools for printing/conversion:
   * `lp`/CUPS client (`cups-client`)
   * `pdfinfo` (`poppler-utils`)
@@ -26,6 +26,7 @@ Recommended (virtualenv):
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+python -m playwright install --no-shell chromium
 ```
 
 Configure the service editing `config.yaml` (or another file pointed by the
@@ -78,6 +79,18 @@ Headings, emphasis, lists, quotes, fenced code and tables are supported.
 Images print their descriptions; raw HTML prints as text, and remote resources
 are not loaded. Install the updated requirements before restarting the service.
 Markdown parsing uses [Mistune](https://mistune.lepture.com/en/latest/guide.html).
+
+### URL 打印
+
+在网页的 **URL** 模式输入公网 HTTP(S) 地址，点击 **生成预览**。页面内会显示 A4 纵向 PDF，也可以在新标签页打开。确认后设置打印份数、页码和单双面，再点击 **开始打印**。打印使用刚才预览的 PDF，网页只在生成预览时加载。
+
+**阅读模式** 默认勾选。它用 [Mozilla Readability 0.6.0](https://github.com/mozilla/readability/tree/0.6.0) 提取文章标题和正文，并按适合打印的单栏版式排版。提取不到正文时使用原网页布局，也可取消勾选后重新生成原布局预览。API 的 `reader_mode` 字段接受 JSON 布尔值，省略时为 `true`。
+
+**打印网页图片** 默认勾选。取消勾选并重新生成预览后，PDF 会省去网页中的 HTML `<img>` 元素。API 的 `include_images` 字段接受 JSON 布尔值，省略时为 `true`。
+
+URL 打印默认启用，Chromium 使用服务器的网络加载网页。按上面的安装步骤安装依赖，并使用运行 HTTPrint 的账号安装 Chromium。Debian/Ubuntu 缺少浏览器系统库时，由管理员运行 `python -m playwright install-deps chromium`。
+
+单个服务进程最多同时生成两份预览，每次转换限时 30 秒。打印受已有的页数和份数限制。网页使用服务器的浏览器会话，无法继承用户浏览器中的登录状态。
 
 ### Partial printing options
 
