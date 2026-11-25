@@ -15,7 +15,17 @@ READABILITY_JS = (Path(__file__).with_name('vendor') / 'readability' / 'Readabil
     encoding='utf-8',
 )
 READABILITY_SCRIPT = '(includeImages) => {\nconst module = undefined;\n' + READABILITY_JS + """
-    return new Readability(document.cloneNode(true), {
+    const documentCopy = document.cloneNode(true);
+    const sourceBlocks = document.querySelectorAll('div, p');
+    const copiedBlocks = documentCopy.querySelectorAll('div, p');
+    // Preserve text fragments that use block tags but sit inline on the source page.
+    sourceBlocks.forEach((element, index) => {
+        const display = getComputedStyle(element).display;
+        if (display === 'inline' || display === 'inline-block') {
+            copiedBlocks[index].dataset.readerDisplay = display;
+        }
+    });
+    return new Readability(documentCopy, {
         serializer: article => {
             for (const element of article.querySelectorAll(
                 'base, embed, form, iframe, link, meta, object, script, style'
@@ -154,6 +164,9 @@ def reader_html(article):
   h1 {{ font-size: 23pt; margin: 0 0 0.5em; }}
   .byline {{ color: #555; margin: 0 0 1.5em; }}
   p {{ margin: 0 0 0.85em; orphans: 3; widows: 3; }}
+  [data-reader-display="inline"], [data-reader-display] > p:not([data-reader-display])
+      {{ display: inline; margin: 0; }}
+  [data-reader-display="inline-block"] {{ display: inline-block; margin: 0; max-width: 100%; }}
   a {{ color: inherit; }}
   figure {{ margin: 1em 0; break-inside: avoid; }}
   img, svg, video {{ max-width: 100%; max-height: 90mm; height: auto; object-fit: contain; }}

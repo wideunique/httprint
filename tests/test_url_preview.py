@@ -116,22 +116,52 @@ class FixedHeaderPage(RequestHandler):
         """)
 
 
-class TestOriginalPrintLayout(AsyncHTTPTestCase):
-    def get_app(self):
-        return Application([(r'/', FixedHeaderPage)])
+class ReaderFragmentsPage(RequestHandler):
+    def get(self):
+        self.write("""
+            <!doctype html>
+            <title>Annotated text</title>
+            <style>
+                .run { display: inline; }
+                .fragment { display: inline-block; }
+                .note { display: inline; }
+            </style>
+            <article>
+                <div><div class="run">
+                    <div class="fragment"><div><span>Annotated</span></div></div>
+                    <div class="fragment"><div><span>sentence</span></div></div>
+                    <div class="note">1</div>
+                </div></div>
+                <p>This paragraph supplies the context for the annotated sentence
+                above, which should read as a single phrase in the printed output.</p>
+            </article>
+        """)
 
-    @gen_test(timeout=35)
-    async def test_fixed_top_banner_prints_only_once(self):
+
+class TestWebPrintLayout(AsyncHTTPTestCase):
+    def get_app(self):
+        return Application([(r'/', FixedHeaderPage), (r'/reader', ReaderFragmentsPage)])
+
+    async def render_pages(self, path, **options):
         async with async_api.async_playwright() as playwright:
             if not Path(playwright.chromium.executable_path).is_file():
                 pytest.skip('Playwright Chromium is not installed')
+        pdf = await url_preview.render_url_pdf(self.get_url(path), **options)
+        return [page.extract_text() for page in PdfReader(BytesIO(pdf)).pages]
 
-        pdf = await url_preview.render_url_pdf(self.get_url('/'), reader_mode=False)
-        first, second = (page.extract_text() for page in PdfReader(BytesIO(pdf)).pages)
+    @gen_test(timeout=35)
+    async def test_fixed_top_banner_prints_only_once(self):
+        first, second = await self.render_pages('/', reader_mode=False)
         assert 'Site navigation' in first
         assert 'First page body' in first
         assert 'Second page body' in second
         assert 'Site navigation' not in second
+
+    @gen_test(timeout=35)
+    async def test_reader_keeps_annotated_text_on_one_line(self):
+        first, = await self.render_pages('/reader')
+        lines = first.splitlines()
+        assert any('Annotated sentence' in line and '1' in line for line in lines)
 
 
 @pytest.fixture
