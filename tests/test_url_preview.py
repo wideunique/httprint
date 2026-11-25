@@ -10,8 +10,8 @@ import pytest
 from playwright import async_api
 from pypdf import PdfReader
 from reportlab.pdfgen.canvas import Canvas
-from tornado.testing import AsyncHTTPTestCase
-from tornado.web import Application
+from tornado.testing import AsyncHTTPTestCase, gen_test
+from tornado.web import Application, RequestHandler
 
 import url_preview
 from url_preview import fit_pdf_to_portrait_a4
@@ -102,10 +102,43 @@ class TestUrlPreview(AsyncHTTPTestCase):
         self.render.assert_not_called()
 
 
+class FixedHeaderPage(RequestHandler):
+    def get(self):
+        self.write("""
+            <style>
+                .banner { position: fixed; top: 0; left: 0; width: 100%;
+                          line-height: 60px; background: white; }
+                section + section { break-before: page; }
+            </style>
+            <div class="banner">Site navigation</div>
+            <section>First page body</section>
+            <section>Second page body</section>
+        """)
+
+
+class TestOriginalPrintLayout(AsyncHTTPTestCase):
+    def get_app(self):
+        return Application([(r'/', FixedHeaderPage)])
+
+    @gen_test(timeout=35)
+    async def test_fixed_top_banner_prints_only_once(self):
+        async with async_api.async_playwright() as playwright:
+            if not Path(playwright.chromium.executable_path).is_file():
+                pytest.skip('Playwright Chromium is not installed')
+
+        pdf = await url_preview.render_url_pdf(self.get_url('/'), reader_mode=False)
+        first, second = (page.extract_text() for page in PdfReader(BytesIO(pdf)).pages)
+        assert 'Site navigation' in first
+        assert 'First page body' in first
+        assert 'Second page body' in second
+        assert 'Site navigation' not in second
+
+
 @pytest.fixture
 def browser_page(monkeypatch):
     page = SimpleNamespace(
         goto=AsyncMock(return_value=SimpleNamespace(ok=True)),
+        emulate_media=AsyncMock(),
         evaluate=AsyncMock(return_value=None),
         locator=Mock(return_value=SimpleNamespace(evaluate_all=AsyncMock())),
         pdf=AsyncMock(),
@@ -154,7 +187,7 @@ def test_reader_mode_false_prints_original_document(browser_page):
     page.pdf.return_value = b'original PDF'
 
     assert asyncio.run(url_preview.render_url_pdf('https://example.com', reader_mode=False)) == b'original PDF'
-    page.evaluate.assert_not_awaited()
+    page.evaluate.assert_awaited_once_with(url_preview.ORIGINAL_PRINT_LAYOUT_SCRIPT)
 
 
 def test_fits_portrait_and_landscape_pages_to_portrait_a4():

@@ -35,6 +35,23 @@ READABILITY_SCRIPT = '(includeImages) => {\nconst module = undefined;\n' + READA
 }
 """
 
+ORIGINAL_PRINT_LAYOUT_SCRIPT = """() => {
+    const { clientWidth, clientHeight } = document.documentElement;
+    const topBars = Array.from(document.querySelectorAll('body *')).filter(element => {
+        if (getComputedStyle(element).position !== 'fixed') {
+            return false;
+        }
+        const { top, width, height } = element.getBoundingClientRect();
+        return Math.abs(top) <= 1 && width >= clientWidth / 2 &&
+            height > 0 && height <= clientHeight / 3;
+    });
+    // Chromium repeats fixed boxes on each printed page. Keep top bars in flow.
+    for (const bar of topBars) {
+        bar.style.setProperty('position', 'relative', 'important');
+        bar.style.setProperty('inset', 'auto', 'important');
+    }
+}"""
+
 
 class UrlPreviewError(Exception):
     def __init__(self, message, status):
@@ -91,14 +108,17 @@ async def render_url_pdf(url, *, include_images=True, reader_mode=True):
             if article:
                 page = await context.new_page()
                 await page.set_content(reader_html(article), wait_until='load')
-            elif not include_images:
-                await page.locator('img').evaluate_all(
-                    """images => {
-                        for (const image of images) {
-                            image.style.setProperty('display', 'none', 'important');
-                        }
-                    }"""
-                )
+            else:
+                if not include_images:
+                    await page.locator('img').evaluate_all(
+                        """images => {
+                            for (const image of images) {
+                                image.style.setProperty('display', 'none', 'important');
+                            }
+                        }"""
+                    )
+                await page.emulate_media(media='print')
+                await page.evaluate(ORIGINAL_PRINT_LAYOUT_SCRIPT)
             pdf = await page.pdf(format='A4', prefer_css_page_size=False, print_background=True)
 
         return await asyncio.to_thread(fit_pdf_to_portrait_a4, pdf)
