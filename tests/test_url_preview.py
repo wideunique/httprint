@@ -236,3 +236,30 @@ def test_fits_portrait_and_landscape_pages_to_portrait_a4():
         assert float(page.mediabox.width) == pytest.approx(595.276, abs=0.01)
         assert float(page.mediabox.height) == pytest.approx(841.89, abs=0.01)
         assert content in page.extract_text()
+
+
+def test_numbers_every_page_below_the_original_content():
+    source = BytesIO()
+    canvas = Canvas(source, pagesize=(url_preview.A4_WIDTH, url_preview.A4_HEIGHT))
+    for content in ('First page bottom', 'Second page bottom'):
+        canvas.drawString(30, 2, content)
+        canvas.showPage()
+    canvas.save()
+
+    pages = PdfReader(BytesIO(fit_pdf_to_portrait_a4(source.getvalue()))).pages
+    assert len(pages) == 2
+
+    for index, page in enumerate(pages, start=1):
+        baselines = {}
+
+        def record_baseline(text, transform, text_matrix, font, font_size):
+            if text.strip():
+                baselines[text.strip()] = (
+                    text_matrix[4] * transform[1] + text_matrix[5] * transform[3] + transform[5]
+                )
+
+        page.extract_text(visitor_text=record_baseline)
+        footer = f'{index} / 2'
+        body = 'First page bottom' if index == 1 else 'Second page bottom'
+        assert footer in baselines
+        assert 0 < baselines[footer] < baselines[body]

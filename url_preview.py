@@ -11,6 +11,7 @@ from urllib.parse import urlsplit, urlunsplit
 RENDER_TIMEOUT = 30
 A4_WIDTH = 210 * 72 / 25.4
 A4_HEIGHT = 297 * 72 / 25.4
+FOOTER_HEIGHT = 30
 READABILITY_JS = (Path(__file__).with_name('vendor') / 'readability' / 'Readability.js').read_text(
     encoding='utf-8',
 )
@@ -181,25 +182,38 @@ def reader_html(article):
 
 
 def fit_pdf_to_portrait_a4(pdf):
-    """Fit each page without cropping, including CSS-selected landscape pages."""
+    """Fit each page to portrait A4 and reserve a footer for its page number."""
     from pypdf import PdfReader, PdfWriter, Transformation
+    from reportlab.pdfgen.canvas import Canvas
 
     reader = PdfReader(BytesIO(pdf))
+    total_pages = len(reader.pages)
+    footer_pdf = BytesIO()
+    canvas = Canvas(footer_pdf, pagesize=(A4_WIDTH, A4_HEIGHT))
+    for number in range(1, total_pages + 1):
+        canvas.setFont('Helvetica', 9)
+        canvas.drawCentredString(A4_WIDTH / 2, FOOTER_HEIGHT / 2, f'{number} / {total_pages}')
+        canvas.showPage()
+    canvas.save()
+
     writer = PdfWriter()
     if reader.metadata:
         writer.add_metadata(reader.metadata)
-    for original in reader.pages:
+    content_height = A4_HEIGHT - FOOTER_HEIGHT
+    for original, footer in zip(reader.pages, PdfReader(footer_pdf).pages):
         if original.rotation:
             original.transfer_rotation_to_content()
         box = original.mediabox
         width, height = float(box.width), float(box.height)
-        scale = min(A4_WIDTH / width, A4_HEIGHT / height)
+        scale = min(A4_WIDTH / width, content_height / height)
         transform = Transformation().translate(-float(box.left), -float(box.bottom))
         transform = transform.scale(scale).translate(
-            (A4_WIDTH - width * scale) / 2, (A4_HEIGHT - height * scale) / 2,
+            (A4_WIDTH - width * scale) / 2,
+            FOOTER_HEIGHT + (content_height - height * scale) / 2,
         )
         page = writer.add_blank_page(width=A4_WIDTH, height=A4_HEIGHT)
         page.merge_transformed_page(original, transform)
+        page.merge_page(footer)
     output = BytesIO()
     writer.write(output)
     return output.getvalue()

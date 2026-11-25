@@ -82,7 +82,7 @@ Markdown parsing uses [Mistune](https://mistune.lepture.com/en/latest/guide.html
 
 ### URL 打印
 
-在网页的 **URL** 模式输入公网 HTTP(S) 地址，点击 **生成预览**。页面内会显示 A4 纵向 PDF，也可以在新标签页打开。确认后设置打印份数、页码和单双面，再点击 **开始打印**。打印使用刚才预览的 PDF，网页只在生成预览时加载。
+在网页的 **URL** 模式输入公网 HTTP(S) 地址，点击 **生成预览**。预览的 A4 纵向 PDF 在每页底部标有「当前页 / 总页数」，也可以在新标签页打开。确认后设置打印份数、页码和单双面，再点击 **开始打印**。打印使用刚才预览的 PDF，网页只在生成预览时加载。
 
 **阅读模式** 默认勾选。它用 [Mozilla Readability 0.6.0](https://github.com/mozilla/readability/tree/0.6.0) 提取文章标题和正文，并按适合打印的单栏版式排版。提取不到正文时使用原网页布局，也可取消勾选后重新生成原布局预览。API 的 `reader_mode` 字段接受 JSON 布尔值，省略时为 `true`。
 
